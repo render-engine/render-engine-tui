@@ -17,6 +17,7 @@ from textual.binding import Binding
 from textual import work
 
 from .db import DatabaseManager
+from .ui import AboutScreen
 
 
 class ContentEditorApp(App):
@@ -31,6 +32,7 @@ class ContentEditorApp(App):
         Binding("r", "reset", "Reset", show=True),
         Binding("pagedown", "next_page", "Next", show=True),
         Binding("pageup", "prev_page", "Prev", show=True),
+        Binding("?", "about", "About", show=True),
         Binding("q", "app.quit", "Quit", show=True),
     ]
 
@@ -449,6 +451,10 @@ class ContentEditorApp(App):
 
         self.load_posts(search=self.current_search, page=self.current_page - 1)
         self.notify(f"Page {self.current_page + 1}", severity="information")
+
+    def action_about(self):
+        """Open the about screen."""
+        self.push_screen(AboutScreen())
 
 
 def run():

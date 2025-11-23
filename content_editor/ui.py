@@ -775,3 +775,60 @@ class CollectionSelectScreen(ModalScreen):
     def action_cancel(self):
         """Cancel the selection."""
         self.app.pop_screen()
+
+
+class AboutScreen(ModalScreen):
+    """Modal screen displaying application information."""
+
+    BINDINGS = [
+        Binding("escape", "close", "Close", show=False),
+    ]
+
+    CSS = """
+    AboutScreen {
+        align: center middle;
+    }
+
+    AboutScreen > Vertical {
+        width: 70;
+        height: auto;
+        border: solid $accent;
+        background: $panel;
+    }
+
+    #about-content {
+        width: 100%;
+        height: auto;
+    }
+
+    .about-button {
+        margin: 1 0;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        """Compose the about screen."""
+        from .version import get_version, get_release_url
+
+        version = get_version()
+        release_url = get_release_url()
+
+        yield Vertical(
+            Static("Content Editor TUI", classes="title"),
+            Static(f"Version: {version}"),
+            Static(f"GitHub: https://github.com/kjaymiller/render-engine-tui"),
+            Static(f"Release: {release_url}"),
+            Static(
+                "A terminal user interface for editing blog content stored in PostgreSQL.",
+                classes="about-description",
+            ),
+            id="about-content",
+        )
+
+    def on_mount(self):
+        """Mount the modal."""
+        self.title = "About"
+
+    def action_close(self):
+        """Close the about screen."""
+        self.app.pop_screen()

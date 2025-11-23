@@ -1,10 +1,15 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel", "setuptools_scm>=6.2"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+write_to = "content_editor/_version.py"
+version_scheme = "release-branch"
+local_scheme = "node-and-date"
 
 [project]
 name = "content-editor-tui"
-version = "0.1.0"
+dynamic = ["version"]
 description = "TUI for editing blog content stored in PostgreSQL"
 requires-python = ">=3.10"
 dependencies = [
