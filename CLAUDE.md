@@ -28,10 +28,10 @@ cp .env.example .env
 ### Running the Application
 ```bash
 # Using uv
-uv run content-editor
+uv run render-engine-tui
 
 # Or with Python directly (if virtual environment is activated)
-.venv/bin/content-editor
+.venv/bin/render-engine-tui
 ```
 
 ### Environment Configuration
@@ -42,10 +42,10 @@ echo 'CONNECTION_STRING=postgresql://user:password@localhost:5432/database' > .e
 
 # Option 2: Set environment variable
 export CONNECTION_STRING="postgresql://user:password@localhost:5432/database"
-uv run content-editor
+uv run render-engine-tui
 
 # Option 3: Inline (one command)
-CONNECTION_STRING="postgresql://..." uv run content-editor
+CONNECTION_STRING="postgresql://..." uv run render-engine-tui
 ```
 
 ## Architecture
@@ -235,7 +235,7 @@ See [`RENDER_ENGINE_INTEGRATION.md`](./RENDER_ENGINE_INTEGRATION.md) and [`CONTE
 
 ### Using with render-engine
 1. Ensure your render-engine project has `[tool.render-engine.cli]` in `pyproject.toml`
-2. Run TUI from the project root: `uv run content-editor`
+2. Run TUI from the project root: `uv run render-engine-tui`
 3. Collections will be automatically loaded from your Site configuration
 4. See `RENDER_ENGINE_INTEGRATION.md` for advanced setup
 
