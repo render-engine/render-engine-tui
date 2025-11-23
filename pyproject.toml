@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel", "setuptools_scm>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
-write_to = "render_engine_tui/_version.py"
+write_to = "render-engine-tui/_version.py"
 
 [project]
 name = "content-editor-tui"
