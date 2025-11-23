@@ -18,4 +18,4 @@ dependencies = [
 ]
 
 [project.scripts]
-render-engine-tui = "render-engine-tui.main:run"
+render-engine-tui = "render_engine_tui.main:run"
