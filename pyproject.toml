@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 write_to = "render-engine-tui/_version.py"
 
 [project]
-name = "content-editor-tui"
+name = "render-engine-tui"
 dynamic = ["version"]
 description = "TUI for editing blog content stored in PostgreSQL"
 requires-python = ">=3.11"
