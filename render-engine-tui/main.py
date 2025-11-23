@@ -9,9 +9,6 @@ from textual.widgets import (
     Static,
     DataTable,
     MarkdownViewer,
-    Label,
-    ListView,
-    ListItem,
 )
 from textual.binding import Binding
 from textual import work
@@ -43,15 +40,7 @@ class ContentEditorApp(App):
     }
 
     #posts-table {
-        width: 75%;
-    }
-
-    #tags-sidebar-list {
-        width: 25;
-    }
-
-    #sidebar-container {
-        width: 50;
+        width: 100%;
     }
     """
 
@@ -61,8 +50,6 @@ class ContentEditorApp(App):
         self.db = DatabaseManager()
         self.current_post = None
         self.posts = []
-        self.tags = []
-        self.selected_tag_id = None
         self.current_collection = "blog"  # Default collection
         self.current_post_full = None  # Cache full post data to avoid duplicate fetches
         self.preview_loading = False  # Track if preview fetch is in progress
@@ -80,10 +67,7 @@ class ContentEditorApp(App):
             id="preview-content",
             show_table_of_contents=False,
         )
-        yield Horizontal(
-            DataTable(id="posts-table"),
-            ListView(id="tags-sidebar-list"),
-        )
+        yield DataTable(id="posts-table")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -92,7 +76,6 @@ class ContentEditorApp(App):
             self.title = "Content Editor"
             self._update_subtitle()
             self.load_posts()
-            self.load_tags_sidebar()
             table = self.query_one("#posts-table", DataTable)
             table.focus()
         except Exception as e:
@@ -167,69 +150,64 @@ class ContentEditorApp(App):
         except Exception as e:
             self.notify(f"Error refreshing post: {e}", severity="error")
 
+    def _get_display_field_for_collection(self) -> str:
+        """Get the main field to display in table for current collection.
+
+        Returns the field name that should be shown in the table
+        (e.g., 'title' for blog, 'content' for microblog).
+        """
+        config = self.db._get_current_config()
+        if config.has_field("title"):
+            return "title"
+        elif config.has_field("content"):
+            return "content"
+        else:
+            return "slug"
+
     def populate_table(self):
         """Populate the data table with posts.
 
-        Collection-specific column handling:
-        - Blog/Notes: ID | Title | Date
-        - Microblog: ID | Content Preview | Date
+        Collection-specific column handling based on collection config.
         """
         table = self.query_one("#posts-table", DataTable)
         table.clear(columns=True)
         table.cursor_type = "row"
 
-        # Add columns based on collection
-        if self.current_collection == "microblog":
-            table.add_columns(
-                "ID",
-                "Content",
-                "Date",
-            )
-        else:
-            table.add_columns(
-                "ID",
-                "Title",
-                "Date",
-            )
+        # Determine which field to display based on collection config
+        display_field = self._get_display_field_for_collection()
+        column_name = display_field.title()
+
+        # Add columns
+        table.add_columns(
+            "ID",
+            column_name,
+            "Date",
+        )
 
         # Add rows
         for post in self.posts:
             date_str = post["date"].strftime("%Y-%m-%d") if post["date"] else "N/A"
-            if self.current_collection == "microblog":
-                # For microblog, show content preview (description field has content preview)
-                content_preview = post["description"][:50] if post["description"] else "(empty)"
-                table.add_row(
-                    str(post["id"]),
-                    content_preview,
-                    date_str,
-                    key=str(post["id"]),
-                )
+
+            # Get the value for the display field
+            if display_field == "content":
+                # Show content preview
+                content_preview = post.get("description", "(empty)")[:50] if post.get("description") else "(empty)"
+                display_value = content_preview
+            elif display_field == "title":
+                display_value = post.get("title", "")
             else:
-                table.add_row(
-                    str(post["id"]),
-                    post["title"],
-                    date_str,
-                    key=str(post["id"]),
-                )
+                display_value = post.get(display_field, "")
+
+            table.add_row(
+                str(post["id"]),
+                display_value,
+                date_str,
+                key=str(post["id"]),
+            )
 
         # Update preview to show the first post
         self.update_preview()
 
-    def load_tags_sidebar(self):
-        """Load tags into the sidebar with post counts (single query, no N+1)."""
-        try:
-            # Use get_all_tags_with_counts() to fetch tags and counts in a single query
-            # instead of the old N+1 approach (1 query for tags + N queries for counts)
-            self.tags = self.db.get_all_tags_with_counts()
-            list_view = self.query_one("#tags-sidebar-list", ListView)
-            list_view.clear()
-
-            for tag in self.tags:
-                post_count = tag.get("post_count", 0)
-                label = Label(f"{tag['name']} ({post_count})", id=f"tag-{tag['id']}")
-                list_view.append(ListItem(label))
-        except Exception as e:
-            self.notify(f"Error loading tags: {e}", severity="error")
 
     def update_preview(self):
         """Update the preview panel with the currently selected post.
@@ -306,35 +284,10 @@ class ContentEditorApp(App):
         """Update preview when row is highlighted."""
         self.update_preview()
 
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """Handle tag selection in the sidebar."""
-        if event.control.id == "tags-sidebar-list":
-            # Get the selected index
-            selected_index = event.control.index
-            if selected_index is not None and selected_index < len(self.tags):
-                self.selected_tag_id = self.tags[selected_index]["id"]
-                # Filter posts by selected tag
-                self.load_posts_for_tag(self.selected_tag_id)
-
-    def load_posts_for_tag(self, tag_id: int):
-        """Load posts filtered by tag."""
-        try:
-            posts = self.db.get_posts_by_tag(tag_id)
-            self.posts = posts
-            self.populate_table()
-        except Exception as e:
-            self.notify(f"Error loading posts for tag: {e}", severity="error")
 
     def action_reset(self):
-        """Reset the view to default state: show all posts, clear tag filter, go to top."""
-        # Clear the tag filter
-        self.selected_tag_id = None
-
-        # Deselect any selected tag in the sidebar
-        list_view = self.query_one("#tags-sidebar-list", ListView)
-        list_view.index = None
-
-        # Reset pagination and load all posts (no search, no tag filter)
+        """Reset the view to default state: show all posts, go to top."""
+        # Reset pagination and load all posts
         self.current_page = 0
         self.current_search = None
         self.load_posts(search=None, page=0)
@@ -421,17 +374,15 @@ class ContentEditorApp(App):
                 self.current_collection = collection
                 self.db.set_collection(collection)
                 self._update_subtitle()
-                self.selected_tag_id = None  # Reset tag filter
                 self.current_page = 0  # Reset pagination
                 self.current_search = None
                 self.load_posts()
-                self.load_tags_sidebar()
                 self.notify(
                     f"Switched to {self.db.AVAILABLE_COLLECTIONS[collection]}",
                     severity="information"
                 )
 
-        self.push_screen(CollectionSelectScreen(on_collection_selected))
+        self.push_screen(CollectionSelectScreen(on_collection_selected, self.db.collections_manager))
 
     def action_next_page(self):
         """Load the next page of posts."""

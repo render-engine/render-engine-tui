@@ -100,8 +100,6 @@ class CreatePostScreen(Screen):
                     Input(id="slug-input", placeholder="url-slug"),
                     Static("Description:"),
                     Input(id="description-input", placeholder="Short description"),
-                    Static("Tags (comma-separated):"),
-                    Input(id="tags-input", placeholder="tag1, tag2, tag3"),
                     Static("External Link (optional):"),
                     Input(id="external-link-input", placeholder="https://example.com"),
                     Static("Image URL (optional):"),
@@ -124,79 +122,89 @@ class CreatePostScreen(Screen):
             ),
         )
 
+    def _collection_has_field(self, field_name: str) -> bool:
+        """Check if the current collection has a specific field."""
+        config = self.db._get_current_config()
+        return config.has_field(field_name)
+
     def on_mount(self):
         """Mount the screen."""
         self.title = "Create New Post"
 
         # Handle collection-specific field configuration
-        is_microblog = self.db.current_collection == "microblog"
+        has_title = self._collection_has_field("title")
+        has_description = self._collection_has_field("description")
 
-        if is_microblog:
-            # Disable title and description for microblog
+        if not has_title:
+            # Disable title field if collection doesn't have it
             title_input = self.query_one("#title-input", Input)
             title_input.disabled = True
             title_input.placeholder = "Field Not Implemented"
 
+        if not has_description:
+            # Disable description field if collection doesn't have it
             description_input = self.query_one("#description-input", Input)
             description_input.disabled = True
             description_input.placeholder = "Field Not Implemented"
 
-            # Auto-generate slug from timestamp for microblog (but keep it editable)
+        # Auto-generate slug from timestamp for collections without title
+        if not has_title:
             slug = datetime.now().strftime("%Y%m%d-%H%M%S")
             slug_input = self.query_one("#slug-input", Input)
             slug_input.value = slug
 
     def on_input_focus(self, event: Input.Focused) -> None:
-        """Handle input focus and alert for disabled fields in microblog."""
+        """Handle input focus and alert for disabled fields."""
         input_widget = event.control
 
-        if self.db.current_collection == "microblog":
+        if not self._collection_has_field("title"):
             if input_widget.id == "title-input":
-                self.app.notify("Title field is not implemented for Microblog posts", severity="warning")
+                self.app.notify(
+                    f"Title field is not available in {self.db.current_collection} collection",
+                    severity="warning"
+                )
                 # Focus content field instead
                 self.query_one("#content-input", TextArea).focus()
 
-            elif input_widget.id == "description-input":
-                self.app.notify("Description field is not implemented for Microblog posts", severity="warning")
+        if not self._collection_has_field("description"):
+            if input_widget.id == "description-input":
+                self.app.notify(
+                    f"Description field is not available in {self.db.current_collection} collection",
+                    severity="warning"
+                )
                 # Focus content field instead
                 self.query_one("#content-input", TextArea).focus()
 
     def action_save(self):
         """Save the new post."""
         try:
-            is_microblog = self.db.current_collection == "microblog"
+            has_title = self._collection_has_field("title")
+            has_description = self._collection_has_field("description")
 
             title = self.query_one("#title-input", Input).value
             slug = self.query_one("#slug-input", Input).value
             description = self.query_one("#description-input", Input).value
             content = self.query_one("#content-input", TextArea).text
-            tags_str = self.query_one("#tags-input", Input).value
             external_link = self.query_one("#external-link-input", Input).value or None
             image_url = self.query_one("#image-url-input", Input).value or None
 
-            # Conditional validation based on collection
-            if is_microblog:
-                # For microblog: title is empty, but slug and content are required
+            # Conditional validation based on collection schema
+            if not has_title and not has_description:
+                # For collections without title/description: slug and content are required
                 if not slug or not content:
                     self.app.notify(
                         "Slug and content are required", severity="error"
                     )
                     return
-                title = ""  # Force empty title for microblog
-                description = ""  # Force empty description for microblog
+                title = ""  # Force empty title
+                description = ""  # Force empty description
             else:
-                # For blog/notes: title, slug, and content are required
+                # For collections with title: title, slug, and content are required
                 if not title or not slug or not content:
                     self.app.notify(
                         "Title, slug, and content are required", severity="error"
                     )
                     return
-
-            if self.db.slug_exists(slug):
-                self.app.notify("Slug already exists", severity="error")
-                return
-
-            tags = [t.strip() for t in tags_str.split(",") if t.strip()]
 
             post_id = self.db.create_post(
                 slug=slug,
@@ -205,7 +213,6 @@ class CreatePostScreen(Screen):
                 description=description,
                 external_link=external_link,
                 image_url=image_url,
-                tags=tags,
             )
 
             self.on_created(post_id)
@@ -252,8 +259,6 @@ class EditPostScreen(Screen):
                     Input(id="slug-input", placeholder="url-slug"),
                     Static("Description:"),
                     Input(id="description-input", placeholder="Short description"),
-                    Static("Tags (comma-separated):"),
-                    Input(id="tags-input", placeholder="tag1, tag2, tag3"),
                     Static("External Link (optional):"),
                     Input(id="external-link-input", placeholder="https://example.com"),
                     Static("Image URL (optional):"),
@@ -276,20 +281,28 @@ class EditPostScreen(Screen):
             ),
         )
 
+    def _collection_has_field(self, field_name: str) -> bool:
+        """Check if the current collection has a specific field."""
+        config = self.db._get_current_config()
+        return config.has_field(field_name)
+
     def on_mount(self):
         """Mount the screen."""
         self.title = "Edit Post"
         self.load_post()
 
         # Handle collection-specific field configuration
-        is_microblog = self.db.current_collection == "microblog"
+        has_title = self._collection_has_field("title")
+        has_description = self._collection_has_field("description")
 
-        if is_microblog:
-            # Disable title and description for microblog
+        if not has_title:
+            # Disable title field if collection doesn't have it
             title_input = self.query_one("#title-input", Input)
             title_input.disabled = True
             title_input.placeholder = "Field Not Implemented"
 
+        if not has_description:
+            # Disable description field if collection doesn't have it
             description_input = self.query_one("#description-input", Input)
             description_input.disabled = True
             description_input.placeholder = "Field Not Implemented"
@@ -299,74 +312,73 @@ class EditPostScreen(Screen):
         try:
             self.post = self.db.get_post(self.post_id)
             if self.post:
-                self.query_one("#title-input", Input).value = self.post["title"]
-                self.query_one("#slug-input", Input).value = self.post["slug"]
+                self.query_one("#title-input", Input).value = self.post.get("title", "")
+                self.query_one("#slug-input", Input).value = self.post.get("slug", "")
                 self.query_one("#description-input", Input).value = (
-                    self.post["description"] or ""
+                    self.post.get("description") or ""
                 )
-                self.query_one("#content-input", TextArea).text = self.post["content"]
-                tags = ", ".join([t["name"] for t in self.post["tags"]])
-                self.query_one("#tags-input", Input).value = tags
+                self.query_one("#content-input", TextArea).text = self.post.get("content", "")
                 self.query_one("#external-link-input", Input).value = (
-                    self.post["external_link"] or ""
+                    self.post.get("external_link") or ""
                 )
                 self.query_one("#image-url-input", Input).value = (
-                    self.post["image_url"] or ""
+                    self.post.get("image_url") or ""
                 )
         except Exception as e:
             self.app.notify(f"Error loading post: {e}", severity="error")
 
     def on_input_focus(self, event: Input.Focused) -> None:
-        """Handle input focus and alert for disabled fields in microblog."""
+        """Handle input focus and alert for disabled fields."""
         input_widget = event.control
 
-        if self.db.current_collection == "microblog":
+        if not self._collection_has_field("title"):
             if input_widget.id == "title-input":
-                self.app.notify("Title field is not implemented for Microblog posts", severity="warning")
+                self.app.notify(
+                    f"Title field is not available in {self.db.current_collection} collection",
+                    severity="warning"
+                )
                 # Focus content field instead
                 self.query_one("#content-input", TextArea).focus()
 
-            elif input_widget.id == "description-input":
-                self.app.notify("Description field is not implemented for Microblog posts", severity="warning")
+        if not self._collection_has_field("description"):
+            if input_widget.id == "description-input":
+                self.app.notify(
+                    f"Description field is not available in {self.db.current_collection} collection",
+                    severity="warning"
+                )
                 # Focus content field instead
                 self.query_one("#content-input", TextArea).focus()
 
     def action_save(self):
         """Save the post."""
         try:
-            is_microblog = self.db.current_collection == "microblog"
+            has_title = self._collection_has_field("title")
+            has_description = self._collection_has_field("description")
 
             title = self.query_one("#title-input", Input).value
             slug = self.query_one("#slug-input", Input).value
             description = self.query_one("#description-input", Input).value
             content = self.query_one("#content-input", TextArea).text
-            tags_str = self.query_one("#tags-input", Input).value
             external_link = self.query_one("#external-link-input", Input).value or None
             image_url = self.query_one("#image-url-input", Input).value or None
 
-            # Conditional validation based on collection
-            if is_microblog:
-                # For microblog: slug and content are required
+            # Conditional validation based on collection schema
+            if not has_title and not has_description:
+                # For collections without title/description: slug and content are required
                 if not slug or not content:
                     self.app.notify(
                         "Slug and content are required", severity="error"
                     )
                     return
-                title = ""  # Force empty title for microblog
-                description = ""  # Force empty description for microblog
+                title = ""  # Force empty title
+                description = ""  # Force empty description
             else:
-                # For blog/notes: title, slug, and content are required
+                # For collections with title: title, slug, and content are required
                 if not title or not slug or not content:
                     self.app.notify(
                         "Title, slug, and content are required", severity="error"
                     )
                     return
-
-            if slug != self.post["slug"] and self.db.slug_exists(slug, self.post_id):
-                self.app.notify("Slug already exists", severity="error")
-                return
-
-            tags = [t.strip() for t in tags_str.split(",") if t.strip()]
 
             self.db.update_post(
                 self.post_id,
@@ -376,7 +388,6 @@ class EditPostScreen(Screen):
                 description=description,
                 external_link=external_link,
                 image_url=image_url,
-                tags=tags,
             )
 
             self.on_updated()
@@ -425,292 +436,6 @@ class ConfirmDeleteScreen(Screen):
             self.app.pop_screen()
 
 
-class TagsScreen(Screen):
-    """Screen for viewing and managing tags."""
-
-    BINDINGS = [
-        Binding("escape", "quit_screen", "Back", show=True),
-        Binding("r", "rename_tag", "Rename", show=True),
-        Binding("d", "delete_tag", "Delete", show=True),
-    ]
-
-    def __init__(self, db: DatabaseManager):
-        """Initialize the tags screen."""
-        super().__init__()
-        self.db = db
-        self.selected_tag_id = None
-        self.tags = []
-        self.current_posts = []
-
-    def compose(self) -> ComposeResult:
-        """Compose the screen with three-pane layout."""
-        yield Vertical(
-            Horizontal(
-                Vertical(
-                    Static("Tags"),
-                    DataTable(id="tags-table"),
-                    id="tags-pane",
-                ),
-                Vertical(
-                    Static("Posts"),
-                    DataTable(id="posts-table"),
-                    Markdown(
-                        "Select a post to preview",
-                        id="post-preview-content",
-                    ),
-                    id="posts-pane",
-                ),
-                id="content-area",
-            ),
-            Horizontal(
-                Button("Rename", id="rename-btn", variant="primary"),
-                Button("Delete", id="delete-btn", variant="error"),
-                Button("Back", id="back-btn"),
-            ),
-        )
-
-    def on_mount(self):
-        """Mount the screen."""
-        self.title = "Tag Management"
-        self.load_tags()
-        tags_table = self.query_one("#tags-table", DataTable)
-        tags_table.cursor_type = "row"
-        tags_table.focus()
-        if self.tags:
-            self.load_posts_for_tag(self.tags[0]["id"])
-
-    def load_tags(self):
-        """Load tags from database."""
-        try:
-            self.tags = self.db.get_all_tags()
-            table = self.query_one("#tags-table", DataTable)
-            table.clear()
-            table.add_columns("Tag Name", "Posts")
-
-            for tag in self.tags:
-                post_count = self.db.get_tag_post_count(tag["id"])
-                table.add_row(tag["name"], str(post_count), key=str(tag["id"]))
-        except Exception as e:
-            self.app.notify(f"Error loading tags: {e}", severity="error")
-
-    def load_posts_for_tag(self, tag_id: int):
-        """Load posts for the selected tag."""
-        try:
-            posts = self.db.get_posts_by_tag(tag_id)
-            self.current_posts = posts
-            table = self.query_one("#posts-table", DataTable)
-            table.clear()
-            table.add_columns("Title", "Date")
-
-            for post in posts:
-                date_str = post["date"].strftime("%Y-%m-%d") if post["date"] else "N/A"
-                table.add_row(post["title"], date_str, key=str(post["id"]))
-
-            self.update_post_preview()
-        except Exception as e:
-            self.app.notify(f"Error loading posts: {e}", severity="error")
-
-    def action_quit_screen(self):
-        """Quit the screen."""
-        self.app.pop_screen()
-
-    def action_rename_tag(self):
-        """Rename the selected tag."""
-        tags_table = self.query_one("#tags-table", DataTable)
-        cursor_row = tags_table.cursor_row
-
-        if cursor_row is None or cursor_row >= len(self.tags):
-            self.app.notify("No tag selected", severity="warning")
-            return
-
-        tag = self.tags[cursor_row]
-        self.app.push_screen(
-            RenameTagScreen(
-                tag["id"],
-                tag["name"],
-                self.db,
-                self.on_tag_renamed,
-            )
-        )
-
-    def action_delete_tag(self):
-        """Delete the selected tag."""
-        tags_table = self.query_one("#tags-table", DataTable)
-        cursor_row = tags_table.cursor_row
-
-        if cursor_row is None or cursor_row >= len(self.tags):
-            self.app.notify("No tag selected", severity="warning")
-            return
-
-        tag = self.tags[cursor_row]
-        self.app.push_screen(
-            ConfirmDeleteTagScreen(
-                tag["name"],
-                lambda: self.confirm_delete_tag(tag["id"]),
-            )
-        )
-
-    def confirm_delete_tag(self, tag_id: int):
-        """Confirm and delete a tag."""
-        try:
-            self.db.delete_tag(tag_id)
-            self.app.notify("Tag deleted successfully", severity="information")
-            self.load_tags()
-            posts_table = self.query_one("#posts-table", DataTable)
-            posts_table.clear()
-        except Exception as e:
-            self.app.notify(f"Error deleting tag: {e}", severity="error")
-
-    def on_tag_renamed(self):
-        """Handle tag rename."""
-        self.load_tags()
-        tags_table = self.query_one("#tags-table", DataTable)
-        if tags_table.cursor_row is not None and tags_table.cursor_row < len(self.tags):
-            self.load_posts_for_tag(self.tags[tags_table.cursor_row]["id"])
-
-    def update_post_preview(self):
-        """Update the preview panel with the currently selected post."""
-        posts_table = self.query_one("#posts-table", DataTable)
-        preview = self.query_one("#post-preview-content", Markdown)
-
-        if (
-            self.current_posts
-            and posts_table.cursor_row is not None
-            and posts_table.cursor_row < len(self.current_posts)
-        ):
-            post = self.current_posts[posts_table.cursor_row]
-            full_post = self.db.get_post(post["id"])
-
-            if full_post.get("content"):
-                content_preview = full_post["content"]
-            else:
-                content_preview = "No content available"
-            preview.update(f"# {post['title']}\n\n{content_preview}")
-        else:
-            preview.update("Select a post to preview")
-
-    def on_data_table_row_selected(self, event):
-        """Update preview when row is selected or cursor moves."""
-        if event.control.id == "posts-table":
-            self.update_post_preview()
-
-    def on_data_table_row_highlighted(self, event):
-        """Update posts list when a tag is highlighted."""
-        if event.control.id == "tags-table":
-            if event.cursor_row is not None and event.cursor_row < len(self.tags):
-                tag_id = self.tags[event.cursor_row]["id"]
-                self.selected_tag_id = tag_id
-                self.load_posts_for_tag(tag_id)
-        elif event.control.id == "posts-table":
-            self.update_post_preview()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
-        if event.button.id == "rename-btn":
-            self.action_rename_tag()
-        elif event.button.id == "delete-btn":
-            self.action_delete_tag()
-        elif event.button.id == "back-btn":
-            self.action_quit_screen()
-
-
-class RenameTagScreen(Screen):
-    """Screen for renaming a tag."""
-
-    BINDINGS = [
-        Binding("ctrl+s", "save", "Save", show=True),
-        Binding("escape", "quit_screen", "Cancel", show=True),
-    ]
-
-    def __init__(self, tag_id: int, current_name: str, db: DatabaseManager, on_renamed):
-        """Initialize the rename tag screen."""
-        super().__init__()
-        self.tag_id = tag_id
-        self.current_name = current_name
-        self.db = db
-        self.on_renamed = on_renamed
-
-    def compose(self) -> ComposeResult:
-        """Compose the screen."""
-        yield Vertical(
-            Static(f'Rename tag "{self.current_name}"', classes="title"),
-            Static("New tag name:"),
-            Input(id="new-name-input", placeholder="Enter new tag name"),
-            Horizontal(
-                Button("Save", id="save-btn", variant="primary"),
-                Button("Cancel", id="cancel-btn"),
-            ),
-        )
-
-    def on_mount(self):
-        """Mount the screen."""
-        self.title = "Rename Tag"
-        input_widget = self.query_one("#new-name-input", Input)
-        input_widget.value = self.current_name
-        input_widget.focus()
-
-    def action_save(self):
-        """Save the new tag name."""
-        try:
-            new_name = self.query_one("#new-name-input", Input).value.strip()
-
-            if not new_name:
-                self.app.notify("Tag name cannot be empty", severity="error")
-                return
-
-            if new_name == self.current_name:
-                self.app.notify("No changes made", severity="information")
-                self.app.pop_screen()
-                return
-
-            self.db.rename_tag(self.tag_id, new_name)
-            self.app.notify(f"Tag renamed to '{new_name}'", severity="information")
-            self.on_renamed()
-            self.app.pop_screen()
-        except Exception as e:
-            self.app.notify(f"Error renaming tag: {e}", severity="error")
-
-    def action_quit_screen(self):
-        """Quit the screen without saving."""
-        self.app.pop_screen()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
-        if event.button.id == "save-btn":
-            self.action_save()
-        elif event.button.id == "cancel-btn":
-            self.action_quit_screen()
-
-
-class ConfirmDeleteTagScreen(Screen):
-    """Screen for confirming tag deletion."""
-
-    def __init__(self, tag_name: str, on_confirm):
-        """Initialize the confirm delete screen."""
-        super().__init__()
-        self.tag_name = tag_name
-        self.on_confirm = on_confirm
-
-    def compose(self) -> ComposeResult:
-        """Compose the screen."""
-        yield Vertical(
-            Static(f'Delete tag "{self.tag_name}"?', classes="title"),
-            Static("This action cannot be undone."),
-            Horizontal(
-                Button("Delete", id="confirm-btn", variant="error"),
-                Button("Cancel", id="cancel-btn"),
-            ),
-        )
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
-        if event.button.id == "confirm-btn":
-            self.on_confirm()
-            self.app.pop_screen()
-        elif event.button.id == "cancel-btn":
-            self.app.pop_screen()
-
-
 class CollectionSelectScreen(ModalScreen):
     """Modal screen for selecting a collection."""
 
@@ -735,14 +460,20 @@ class CollectionSelectScreen(ModalScreen):
     }
     """
 
-    def __init__(self, on_collection_selected):
+    def __init__(self, on_collection_selected, collections_manager=None):
         """Initialize the collection selection modal.
 
         Args:
             on_collection_selected: Callback function that receives the selected collection name
+            collections_manager: CollectionsManager instance (optional, creates new one if not provided)
         """
         super().__init__()
         self.on_collection_selected = on_collection_selected
+        self.collections_manager = collections_manager
+        if self.collections_manager is None:
+            # Create a new instance if not provided
+            from .collections_config import CollectionsManager
+            self.collections_manager = CollectionsManager()
 
     def compose(self) -> ComposeResult:
         """Compose the collection selection modal."""
@@ -756,9 +487,9 @@ class CollectionSelectScreen(ModalScreen):
         self.title = "Change Collection"
         list_view = self.query_one("#collection-list", ListView)
 
-        # Add available collections from DatabaseManager
-        for collection_name, collection_display in DatabaseManager.AVAILABLE_COLLECTIONS.items():
-            label = Label(collection_display, id=f"collection-{collection_name}")
+        # Add available collections from CollectionsManager
+        for collection_name, collection_config in self.collections_manager.get_all_collections().items():
+            label = Label(collection_config.display_name, id=f"collection-{collection_name}")
             list_item = ListItem(label, id=collection_name)
             list_view.append(list_item)
 
@@ -819,7 +550,7 @@ class AboutScreen(ModalScreen):
             Static(f"GitHub: https://github.com/kjaymiller/render-engine-tui"),
             Static(f"Release: {release_url}"),
             Static(
-                "A terminal user interface for editing blog content stored in PostgreSQL.",
+                "A terminal user interface for editing content via render-engine ContentManager.",
                 classes="about-description",
             ),
             id="about-content",

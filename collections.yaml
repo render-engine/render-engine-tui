@@ -1,0 +1,126 @@
+# Collections configuration for the Content Editor TUI
+#
+# This file defines the available collections and their schemas.
+# Each collection maps to a PostgreSQL table with associated tags via a junction table.
+#
+# To add a new collection:
+# 1. Add an entry under collections with the collection name (this becomes the table name by default)
+# 2. Specify display_name, table_name (if different from the key), id_column, and junction_table
+# 3. List all fields that exist in the table
+# 4. Restart the application
+
+collections:
+  blog:
+    display_name: "Blog Posts"
+    table_name: "blog"
+    id_column: "blog_id"
+    junction_table: "blog_tags"
+    fields:
+      - name: "id"
+        type: "int"
+        display: false
+      - name: "slug"
+        type: "str"
+        searchable: true
+      - name: "title"
+        type: "str"
+        searchable: true
+        editable: true
+      - name: "description"
+        type: "str"
+        searchable: true
+        editable: true
+      - name: "content"
+        type: "str"
+        searchable: true
+        editable: true
+      - name: "external_link"
+        type: "str"
+        editable: true
+      - name: "image_url"
+        type: "str"
+        editable: true
+      - name: "date"
+        type: "datetime"
+
+  notes:
+    display_name: "Notes"
+    table_name: "notes"
+    id_column: "notes_id"
+    junction_table: "notes_tags"
+    fields:
+      - name: "id"
+        type: "int"
+        display: false
+      - name: "slug"
+        type: "str"
+        searchable: true
+      - name: "title"
+        type: "str"
+        searchable: true
+        editable: true
+      - name: "description"
+        type: "str"
+        searchable: true
+        editable: true
+      - name: "content"
+        type: "str"
+        searchable: true
+        editable: true
+      - name: "external_link"
+        type: "str"
+        editable: true
+      - name: "image_url"
+        type: "str"
+        editable: true
+      - name: "date"
+        type: "datetime"
+
+  microblog:
+    display_name: "Microblog Posts"
+    table_name: "microblog"
+    id_column: "microblog_id"
+    junction_table: "microblog_tags"
+    fields:
+      - name: "id"
+        type: "int"
+        display: false
+      - name: "slug"
+        type: "str"
+        searchable: true
+      - name: "content"
+        type: "str"
+        searchable: true
+        editable: true
+      - name: "external_link"
+        type: "str"
+        editable: true
+      - name: "image_url"
+        type: "str"
+        editable: true
+      - name: "date"
+        type: "datetime"
+
+  # Example: Add your own collection here
+  # portfolio:
+  #   display_name: "Portfolio Projects"
+  #   table_name: "portfolio"
+  #   id_column: "portfolio_id"
+  #   junction_table: "portfolio_tags"
+  #   fields:
+  #     - name: "id"
+  #       type: "int"
+  #       display: false
+  #     - name: "slug"
+  #       type: "str"
+  #       searchable: true
+  #     - name: "title"
+  #       type: "str"
+  #       searchable: true
+  #       editable: true
+  #     - name: "content"
+  #       type: "str"
+  #       searchable: true
+  #       editable: true
+  #     - name: "date"
+  #       type: "datetime"
