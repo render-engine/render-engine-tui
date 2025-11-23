@@ -1,16 +1,13 @@
-"""Configuration management for configurable collections.
+"""Configuration management for render-engine collections only.
 
-Supports loading collections from three sources (in order of priority):
-1. render-engine Site configuration (if in a render-engine project)
-2. collections.yaml file
-3. Hard-coded defaults
+Collections MUST be defined in [tool.render-engine] or [tool.render-engine.tui]
+in the project's pyproject.toml. Falls back to [tool.render-engine.tui] if
+[tool.render-engine] collections are not found.
 """
 
-import os
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
-import yaml
 
 
 @dataclass
@@ -52,188 +49,60 @@ class CollectionConfig:
 
 
 class CollectionsManager:
-    """Manages collection configurations from render-engine, YAML, or defaults."""
+    """Manages collection configurations from render-engine only."""
 
-    def __init__(self, config_path: Optional[str] = None, use_render_engine: bool = True, project_root: Optional[Path] = None):
+    def __init__(self, project_root: Optional[Path] = None):
         """Initialize the collections manager.
 
+        Collections MUST be defined in [tool.render-engine] or [tool.render-engine.tui]
+        in the project's pyproject.toml.
+
         Args:
-            config_path: Path to collections.yaml file (optional).
-                        If not provided, looks in standard locations.
-            use_render_engine: If True, try to load from render-engine first (default: True)
             project_root: Path to project root for render-engine (defaults to current directory)
+
+        Raises:
+            RuntimeError: If collections cannot be loaded from render-engine
         """
         self.collections: Dict[str, CollectionConfig] = {}
         self._render_engine_loader: Optional[Any] = None
-        self._load_config(config_path, use_render_engine, project_root)
+        self._load_from_render_engine(project_root or Path.cwd())
 
-    def _load_config(self, config_path: Optional[str] = None, use_render_engine: bool = True, project_root: Optional[Path] = None) -> None:
-        """Load collections from render-engine, YAML, or defaults (in order).
 
-        Args:
-            config_path: Path to config file. If None, uses default location.
-            use_render_engine: If True, try render-engine first.
-            project_root: Path to project root for render-engine.
-        """
-        # Try to load from render-engine first
-        if use_render_engine:
-            if self._load_from_render_engine(project_root):
-                return
-
-        # Try to load from YAML config
-        if config_path is None:
-            # Look for collections.yaml in current directory and parent directory
-            for path in [
-                "collections.yaml",
-                ".collections.yaml",
-                os.path.join(os.path.dirname(__file__), "..", "collections.yaml"),
-            ]:
-                if os.path.exists(path):
-                    config_path = path
-                    break
-            else:
-                # Use default collections if no config file found
-                self._load_default_collections()
-                return
-
-        try:
-            with open(config_path, "r") as f:
-                data = yaml.safe_load(f)
-
-            if not data or "collections" not in data:
-                self._load_default_collections()
-                return
-
-            for collection_name, collection_data in data["collections"].items():
-                self.collections[collection_name] = self._parse_collection(
-                    collection_name, collection_data
-                )
-        except Exception as e:
-            print(f"Error loading collections.yaml: {e}. Using defaults.")
-            self._load_default_collections()
-
-    def _load_from_render_engine(self, project_root: Optional[Path] = None) -> bool:
-        """Try to load collections from render-engine Site configuration.
+    def _load_from_render_engine(self, project_root: Path) -> None:
+        """Load collections from render-engine Site configuration.
 
         Args:
             project_root: Path to project root containing pyproject.toml
 
-        Returns:
-            True if successful, False otherwise
+        Raises:
+            RuntimeError: If render-engine configuration is not found or invalid
         """
         try:
             from .render_engine_integration import RenderEngineCollectionsLoader
 
-            loader = RenderEngineCollectionsLoader(project_root or Path.cwd())
+            loader = RenderEngineCollectionsLoader(project_root)
             self.collections = loader.get_all_collections()
             self._render_engine_loader = loader  # Store for later use
 
-            if self.collections:
-                print(
-                    f"Loaded {len(self.collections)} collection(s) from render-engine Site"
+            if not self.collections:
+                raise RuntimeError(
+                    "No collections found in render-engine configuration. "
+                    "Define collections in [tool.render-engine] or [tool.render-engine.tui] "
+                    "in your project's pyproject.toml."
                 )
-                return True
+
+            print(
+                f"Loaded {len(self.collections)} collection(s) from render-engine Site"
+            )
+        except RuntimeError:
+            raise
         except Exception as e:
-            # Silently fail - render-engine might not be configured
-            print(f"Note: Could not load from render-engine: {e}")
-            return False
+            raise RuntimeError(
+                f"Failed to load collections from render-engine: {e}. "
+                f"Ensure render-engine is installed and [tool.render-engine] or "
+                f"[tool.render-engine.tui] is configured in pyproject.toml."
+            )
 
-        return False
-
-    def _parse_collection(
-        self, name: str, data: Dict[str, Any]
-    ) -> CollectionConfig:
-        """Parse a collection configuration from dict."""
-        fields_data = data.get("fields", [])
-        fields = []
-
-        for field_data in fields_data:
-            if isinstance(field_data, str):
-                # Simple field name
-                fields.append(Field(name=field_data, type="str"))
-            elif isinstance(field_data, dict):
-                fields.append(
-                    Field(
-                        name=field_data["name"],
-                        type=field_data.get("type", "str"),
-                        searchable=field_data.get("searchable", False),
-                        editable=field_data.get("editable", True),
-                        display=field_data.get("display", True),
-                    )
-                )
-
-        return CollectionConfig(
-            name=name,
-            display_name=data.get("display_name", name.title()),
-            table_name=data.get("table_name", name),
-            id_column=data.get("id_column", f"{name}_id"),
-            junction_table=data.get("junction_table", f"{name}_tags"),
-            fields=fields,
-        )
-
-    def _load_default_collections(self) -> None:
-        """Load default hard-coded collections."""
-        self.collections = {
-            "blog": CollectionConfig(
-                name="blog",
-                display_name="Blog Posts",
-                table_name="blog",
-                id_column="blog_id",
-                junction_table="blog_tags",
-                fields=[
-                    Field(name="id", type="int", display=False),
-                    Field(name="slug", type="str", searchable=True),
-                    Field(name="title", type="str", searchable=True, editable=True),
-                    Field(
-                        name="description",
-                        type="str",
-                        searchable=True,
-                        editable=True,
-                    ),
-                    Field(name="content", type="str", searchable=True, editable=True),
-                    Field(name="external_link", type="str", editable=True),
-                    Field(name="image_url", type="str", editable=True),
-                    Field(name="date", type="datetime"),
-                ],
-            ),
-            "notes": CollectionConfig(
-                name="notes",
-                display_name="Notes",
-                table_name="notes",
-                id_column="notes_id",
-                junction_table="notes_tags",
-                fields=[
-                    Field(name="id", type="int", display=False),
-                    Field(name="slug", type="str", searchable=True),
-                    Field(name="title", type="str", searchable=True, editable=True),
-                    Field(
-                        name="description",
-                        type="str",
-                        searchable=True,
-                        editable=True,
-                    ),
-                    Field(name="content", type="str", searchable=True, editable=True),
-                    Field(name="external_link", type="str", editable=True),
-                    Field(name="image_url", type="str", editable=True),
-                    Field(name="date", type="datetime"),
-                ],
-            ),
-            "microblog": CollectionConfig(
-                name="microblog",
-                display_name="Microblog Posts",
-                table_name="microblog",
-                id_column="microblog_id",
-                junction_table="microblog_tags",
-                fields=[
-                    Field(name="id", type="int", display=False),
-                    Field(name="slug", type="str", searchable=True),
-                    Field(name="content", type="str", searchable=True, editable=True),
-                    Field(name="external_link", type="str", editable=True),
-                    Field(name="image_url", type="str", editable=True),
-                    Field(name="date", type="datetime"),
-                ],
-            ),
-        }
 
     def get_collection(self, name: str) -> Optional[CollectionConfig]:
         """Get a collection by name."""

@@ -26,28 +26,25 @@ class ContentManagerWrapper:
     def __init__(
         self,
         collection: str = "blog",
-        config_path: Optional[str] = None,
-        use_render_engine: bool = True,
         project_root: Optional[Path] = None,
         connection_string: Optional[str] = None,
     ):
         """Initialize the ContentManager wrapper.
 
+        Collections MUST be defined in [tool.render-engine] or [tool.render-engine.tui]
+        in the project's pyproject.toml.
+
         Args:
             collection: Collection to manage (default: "blog")
-            config_path: Path to collections.yaml config file
-            use_render_engine: If True, load collections from render-engine if available (default: True)
             project_root: Path to render-engine project root (defaults to current directory)
             connection_string: PostgreSQL connection string (defaults to CONNECTION_STRING env var)
 
         Raises:
             ValueError: If collection is invalid
-            RuntimeError: If ContentManager setup fails
+            RuntimeError: If render-engine config not found or ContentManager setup fails
         """
-        # Load collections from render-engine, YAML, or defaults
+        # Load collections from render-engine only
         self.collections_manager = CollectionsManager(
-            config_path=config_path,
-            use_render_engine=use_render_engine,
             project_root=project_root,
         )
 
