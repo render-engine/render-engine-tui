@@ -244,12 +244,13 @@ class RenderEngineCollectionsLoader:
 
 
 class ContentManagerAdapter:
-    """Adapter to use render-engine ContentManager for content operations.
+    """Adapter to use render-engine ContentManager's standard pages property.
 
-    This allows the TUI to use the ContentManager from render-engine
-    as the primary data source instead of direct database access.
+    Uses the standard render-engine ContentManager API (pages property) for
+    reading content. All writes require a database connection, as the standard
+    ContentManager API is read-only.
 
-    Translates between TUI's expected data format and ContentManager's format.
+    Translates between Page objects and TUI's expected dictionary format.
     """
 
     def __init__(self, content_manager_class, collection_config):
@@ -274,29 +275,48 @@ class ContentManagerAdapter:
                 )
         return self._instance
 
-    def supports_operation(self, operation: str) -> bool:
-        """Check if ContentManager supports an operation.
+    def _page_to_dict(self, page: Any) -> Dict[str, Any]:
+        """Convert a render-engine Page object to a dictionary.
 
         Args:
-            operation: Operation name (get_all, get, create, update, delete, search)
+            page: A Page object from ContentManager
 
         Returns:
-            True if the operation is available
+            Dictionary with normalized fields (id, slug, title, description, content, date)
         """
-        manager = self._get_instance()
-        method_map = {
-            "get_all": "get_all",
-            "get": "get",
-            "create": "create",
-            "update": "update",
-            "delete": "delete",
-            "search": "search",
+        # Handle both dict-like and object-like pages
+        if isinstance(page, dict):
+            page_dict = page
+        else:
+            # Try to convert Page object to dict
+            page_dict = {}
+            # Get basic attributes
+            for attr in ['id', 'slug', 'title', 'description', 'content', 'date',
+                        'external_link', 'image_url', 'tags']:
+                if hasattr(page, attr):
+                    page_dict[attr] = getattr(page, attr)
+
+            # Check metadata if available
+            if hasattr(page, 'meta') and isinstance(page.meta, dict):
+                page_dict.update(page.meta)
+            elif hasattr(page, 'metadata') and isinstance(page.metadata, dict):
+                page_dict.update(page.metadata)
+
+        # Normalize result with required fields
+        result = {
+            "id": page_dict.get("id"),
+            "slug": page_dict.get("slug", ""),
+            "title": page_dict.get("title", ""),
+            "description": page_dict.get("description", ""),
+            "content": page_dict.get("content", ""),
+            "external_link": page_dict.get("external_link"),
+            "image_url": page_dict.get("image_url"),
+            "date": page_dict.get("date"),
         }
-        method_name = method_map.get(operation)
-        return method_name and hasattr(manager, method_name)
+        return result
 
     def get_all(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
-        """Get all items with pagination.
+        """Get all items with pagination using the standard pages property.
 
         Args:
             limit: Maximum number of items to return
@@ -307,22 +327,28 @@ class ContentManagerAdapter:
         """
         manager = self._get_instance()
 
-        # Try to use get_all if available
-        if hasattr(manager, "get_all"):
-            items = manager.get_all()
-            # Apply pagination manually if get_all returns list
-            if isinstance(items, list):
-                return items[offset : offset + limit]
-            return items
+        # Use standard ContentManager API: pages property
+        if not hasattr(manager, "pages"):
+            raise RuntimeError(
+                f"{self.content_manager_class.__name__} does not have a pages property"
+            )
 
-        raise NotImplementedError(
-            f"{self.content_manager_class.__name__} does not support get_all()"
-        )
+        try:
+            # Get all pages and convert to dicts
+            all_pages = list(manager.pages)
+            pages_as_dicts = [self._page_to_dict(page) for page in all_pages]
+
+            # Apply pagination
+            return pages_as_dicts[offset : offset + limit]
+        except Exception as e:
+            raise RuntimeError(f"Failed to fetch pages: {e}")
 
     def search(
         self, search_term: str, limit: int = 50, offset: int = 0
     ) -> List[Dict[str, Any]]:
-        """Search items with optional pagination.
+        """Search items using the standard pages property.
+
+        Performs in-memory search on all pages using searchable fields.
 
         Args:
             search_term: Search term to filter by
@@ -334,24 +360,20 @@ class ContentManagerAdapter:
         """
         manager = self._get_instance()
 
-        # Try to use search if available
-        if hasattr(manager, "search"):
-            items = manager.search(search_term)
-            if isinstance(items, list):
-                return items[offset : offset + limit]
-            return items
+        if not hasattr(manager, "pages"):
+            raise RuntimeError(
+                f"{self.content_manager_class.__name__} does not have a pages property"
+            )
 
-        # Fallback: get all and filter manually
-        if hasattr(manager, "get_all"):
-            items = manager.get_all()
-            if not isinstance(items, list):
-                return []
+        try:
+            all_pages = list(manager.pages)
+            pages_as_dicts = [self._page_to_dict(page) for page in all_pages]
 
             # Filter by searchable fields
             filtered = []
             search_lower = search_term.lower()
 
-            for item in items:
+            for item in pages_as_dicts:
                 for field in self.collection_config.fields:
                     if field.searchable and field.name in item:
                         value = str(item[field.name]).lower()
@@ -359,14 +381,13 @@ class ContentManagerAdapter:
                             filtered.append(item)
                             break
 
+            # Apply pagination
             return filtered[offset : offset + limit]
-
-        raise NotImplementedError(
-            f"{self.content_manager_class.__name__} does not support search or get_all()"
-        )
+        except Exception as e:
+            raise RuntimeError(f"Failed to search pages: {e}")
 
     def get(self, item_id: int) -> Optional[Dict[str, Any]]:
-        """Get a single item by ID.
+        """Get a single item by ID using the standard pages property.
 
         Args:
             item_id: The item ID
@@ -376,76 +397,47 @@ class ContentManagerAdapter:
         """
         manager = self._get_instance()
 
-        if hasattr(manager, "get"):
-            return manager.get(item_id)
+        if not hasattr(manager, "pages"):
+            raise RuntimeError(
+                f"{self.content_manager_class.__name__} does not have a pages property"
+            )
 
-        # Fallback: get all and search
-        if hasattr(manager, "get_all"):
-            items = manager.get_all()
-            if isinstance(items, list):
-                for item in items:
-                    if item.get("id") == item_id:
-                        return item
+        try:
+            # Search through pages for matching ID
+            for page in manager.pages:
+                page_dict = self._page_to_dict(page)
+                if page_dict.get("id") == item_id:
+                    return page_dict
+            return None
+        except Exception as e:
+            raise RuntimeError(f"Failed to fetch page {item_id}: {e}")
 
-        return None
+    def create_entry(self, content: str, **kwargs) -> str:
+        """Create a new entry using ContentManager's create_entry() method.
 
-    def create(self, **kwargs) -> int:
-        """Create a new item.
+        Uses the ContentManager's standard create_entry() interface, which all
+        backends implement (PostgreSQL, FileSystem, etc.).
 
         Args:
-            **kwargs: Item fields and values
+            content: Markdown content with YAML frontmatter
+            **kwargs: Additional arguments passed to ContentManager.create_entry()
+                     (connection, table, collection_name, etc.)
 
         Returns:
-            The ID of the created item
+            Result from ContentManager.create_entry() (typically SQL query or file path)
+
+        Raises:
+            RuntimeError: If create_entry fails
         """
         manager = self._get_instance()
 
-        if hasattr(manager, "create"):
-            result = manager.create(**kwargs)
-            # Handle different return types
-            if isinstance(result, dict) and "id" in result:
-                return result["id"]
-            return int(result) if result else None
+        if not hasattr(manager, "create_entry") or not callable(getattr(manager, "create_entry")):
+            raise NotImplementedError(
+                f"{self.content_manager_class.__name__} does not implement create_entry(). "
+                f"Use a ContentManager that supports write operations."
+            )
 
-        raise NotImplementedError(
-            f"{self.content_manager_class.__name__} does not support create()"
-        )
-
-    def update(self, item_id: int, **kwargs) -> bool:
-        """Update an existing item.
-
-        Args:
-            item_id: The item ID
-            **kwargs: Fields and values to update
-
-        Returns:
-            True if successful
-        """
-        manager = self._get_instance()
-
-        if hasattr(manager, "update"):
-            result = manager.update(item_id, **kwargs)
-            return bool(result) if result is not None else True
-
-        raise NotImplementedError(
-            f"{self.content_manager_class.__name__} does not support update()"
-        )
-
-    def delete(self, item_id: int) -> bool:
-        """Delete an item.
-
-        Args:
-            item_id: The item ID
-
-        Returns:
-            True if successful
-        """
-        manager = self._get_instance()
-
-        if hasattr(manager, "delete"):
-            result = manager.delete(item_id)
-            return bool(result) if result is not None else True
-
-        raise NotImplementedError(
-            f"{self.content_manager_class.__name__} does not support delete()"
-        )
+        try:
+            return manager.create_entry(content=content, **kwargs)
+        except Exception as e:
+            raise RuntimeError(f"Failed to create entry via ContentManager: {e}")

@@ -1,7 +1,8 @@
-"""ContentManager-based operations for content access and manipulation.
+"""Hybrid content operations combining ContentManager reads with database writes.
 
-This module provides a unified interface for working with render-engine
-ContentManager instances. All content operations go through ContentManager.
+This module provides a unified interface for working with render-engine:
+- READ operations: Use ContentManager's standard `pages` property
+- WRITE operations: Use direct database access (since ContentManager API is read-only)
 """
 
 import os
@@ -9,14 +10,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
+import psycopg
+from psycopg import sql
+
 from .collections_config import CollectionsManager
 
 
 class ContentManagerWrapper:
-    """Wrapper for managing ContentManager-based content operations.
+    """Wrapper for managing hybrid ContentManager/Database operations.
 
-    All content is accessed and modified exclusively through render-engine
-    ContentManager instances. No direct database access is performed.
+    READ operations: Uses ContentManager's standard `pages` property
+    WRITE operations: Uses direct database access (since ContentManager API is read-only)
     """
 
     def __init__(
@@ -25,6 +29,7 @@ class ContentManagerWrapper:
         config_path: Optional[str] = None,
         use_render_engine: bool = True,
         project_root: Optional[Path] = None,
+        connection_string: Optional[str] = None,
     ):
         """Initialize the ContentManager wrapper.
 
@@ -33,6 +38,7 @@ class ContentManagerWrapper:
             config_path: Path to collections.yaml config file
             use_render_engine: If True, load collections from render-engine if available (default: True)
             project_root: Path to render-engine project root (defaults to current directory)
+            connection_string: PostgreSQL connection string (defaults to CONNECTION_STRING env var)
 
         Raises:
             ValueError: If collection is invalid
@@ -51,6 +57,15 @@ class ContentManagerWrapper:
 
         self.current_collection = collection
         self.content_manager = None  # Will be set if using render-engine ContentManager
+
+        # Set up database connection for write operations
+        conn_str = connection_string or os.environ.get("CONNECTION_STRING")
+        if not conn_str:
+            raise ValueError("CONNECTION_STRING environment variable not set")
+        self.connection_string = conn_str
+        self.conn = None
+        self._connect_db()
+
         self._setup_content_manager()
 
     @property
@@ -62,6 +77,18 @@ class ContentManagerWrapper:
     def _get_current_config(self):
         """Get the config for the current collection."""
         return self.collections_manager.get_collection(self.current_collection)
+
+    def _connect_db(self):
+        """Establish database connection for write operations."""
+        try:
+            self.conn = psycopg.connect(self.connection_string)
+        except Exception as e:
+            raise RuntimeError(f"Failed to connect to database: {e}")
+
+    def _disconnect_db(self):
+        """Close database connection."""
+        if self.conn:
+            self.conn.close()
 
     def is_using_render_engine(self) -> bool:
         """Check if collections are loaded from render-engine.
@@ -236,12 +263,15 @@ class ContentManagerWrapper:
         image_url: Optional[str] = None,
         date: Optional[datetime] = None,
     ) -> int:
-        """Create a new post in current collection.
+        """Create a new post in current collection using ContentManager.create_entry().
+
+        Builds markdown with YAML frontmatter and delegates to ContentManager,
+        which handles storage (PostgreSQL, FileSystem, etc.) transparently.
 
         Args:
             slug: Post slug (URL identifier)
             title: Post title
-            content: Post content
+            content: Post content (markdown)
             description: Post description
             external_link: External URL (optional)
             image_url: Image URL (optional)
@@ -253,118 +283,76 @@ class ContentManagerWrapper:
         Raises:
             RuntimeError: If creation fails
         """
-        if not self.content_manager:
-            raise RuntimeError(f"No ContentManager available for collection '{self.current_collection}'")
-
         if date is None:
             date = datetime.now()
 
+        if not self.content_manager:
+            raise RuntimeError("No ContentManager available for collection")
+
         try:
+            import frontmatter
+
             config = self._get_current_config()
-            # Build data dict based on collection schema
-            data = {
+
+            # Build YAML frontmatter dictionary
+            frontmatter_data = {
                 "slug": slug,
-                "content": content,
-                "external_link": external_link,
-                "image_url": image_url,
-                "date": date,
+                "date": date.isoformat() if isinstance(date, datetime) else date,
             }
 
-            # Only include title/description if collection supports them
-            if config.has_field("title"):
-                data["title"] = title
-            if config.has_field("description"):
-                data["description"] = description
+            # Add optional fields based on collection schema
+            if config.has_field("title") and title:
+                frontmatter_data["title"] = title
+            if config.has_field("description") and description:
+                frontmatter_data["description"] = description
+            if external_link:
+                frontmatter_data["external_link"] = external_link
+            if image_url:
+                frontmatter_data["image_url"] = image_url
 
-            post_id = self.content_manager.create(**data)
-            if post_id:
-                return post_id
-            raise RuntimeError("ContentManager.create() returned no ID")
+            # Create markdown post object with frontmatter
+            post = frontmatter.Post(content, **frontmatter_data)
+            markdown_with_frontmatter = frontmatter.dumps(post)
+
+            # Delegate to ContentManager - works with any backend (PostgreSQL, FileSystem, etc.)
+            result = self.content_manager.create_entry(
+                content=markdown_with_frontmatter,
+                connection=self.conn,  # For database backends
+                table=config.table_name,
+                collection_name=self.current_collection,
+            )
+
+            # Extract post ID from result
+            # For PostgreSQL: result is the SQL query string, need to parse or query back
+            # For FileSystem: result is the file path or success message
+            post_id = self._get_post_id_after_create(slug)
+            return post_id
+
         except Exception as e:
             raise RuntimeError(f"Failed to create post: {e}")
 
-
-    def update_post(
-        self,
-        post_id: int,
-        slug: Optional[str] = None,
-        title: Optional[str] = None,
-        content: Optional[str] = None,
-        description: Optional[str] = None,
-        external_link: Optional[str] = None,
-        image_url: Optional[str] = None,
-        date: Optional[datetime] = None,
-    ) -> bool:
-        """Update an existing post in current collection.
+    def _get_post_id_after_create(self, slug: str) -> int:
+        """Get the ID of a post that was just created by slug.
 
         Args:
-            post_id: The post ID
-            slug: Post slug (optional)
-            title: Post title (optional, ignored if collection doesn't support it)
-            content: Post content (optional)
-            description: Post description (optional, ignored if collection doesn't support it)
-            external_link: External URL (optional)
-            image_url: Image URL (optional)
-            date: Publication date (optional)
+            slug: The post slug
 
         Returns:
-            True if update successful
+            The post ID
 
         Raises:
-            RuntimeError: If update fails
+            RuntimeError: If post not found
         """
-        if not self.content_manager:
-            raise RuntimeError(f"No ContentManager available for collection '{self.current_collection}'")
-
+        # Query the newly created post to get its ID
+        # For PostgreSQL: query the database
+        # For FileSystem: read from metadata file
         try:
-            config = self._get_current_config()
-            # Build update data based on collection schema
-            data = {}
-
-            if slug is not None:
-                data["slug"] = slug
-            if content is not None:
-                data["content"] = content
-            if external_link is not None:
-                data["external_link"] = external_link
-            if image_url is not None:
-                data["image_url"] = image_url
-            if date is not None:
-                data["date"] = date
-
-            # Only include title/description if collection supports them
-            if config.has_field("title") and title is not None:
-                data["title"] = title
-            if config.has_field("description") and description is not None:
-                data["description"] = description
-
-            if data:
-                self.content_manager.update(post_id, **data)
-
-            return True
+            posts = self.get_posts(search=slug, limit=1)
+            if posts:
+                return posts[0].get("id")
+            raise RuntimeError(f"Post with slug '{slug}' not found after creation")
         except Exception as e:
-            raise RuntimeError(f"Failed to update post: {e}")
-
-
-    def delete_post(self, post_id: int) -> bool:
-        """Delete a post from current collection.
-
-        Args:
-            post_id: The post ID
-
-        Returns:
-            True if delete successful
-
-        Raises:
-            RuntimeError: If delete fails
-        """
-        if not self.content_manager:
-            raise RuntimeError(f"No ContentManager available for collection '{self.current_collection}'")
-
-        try:
-            return self.content_manager.delete(post_id)
-        except Exception as e:
-            raise RuntimeError(f"Failed to delete post: {e}")
+            raise RuntimeError(f"Failed to get post ID after creation: {e}")
 
 
 # Alias for backward compatibility

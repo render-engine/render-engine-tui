@@ -21,9 +21,7 @@ class ContentEditorApp(App):
     """Main application."""
 
     BINDINGS = [
-        Binding("e", "edit_post", "Edit", show=True),
         Binding("n", "new_post", "New", show=True),
-        Binding("d", "delete_post", "Delete", show=True),
         Binding("/", "search", "Search", show=True),
         Binding("c", "change_collection", "Collection", show=True),
         Binding("r", "reset", "Reset", show=True),
@@ -303,24 +301,6 @@ class ContentEditorApp(App):
         # Notify user
         self.notify("View reset to default", severity="information")
 
-    def action_edit_post(self):
-        """Edit the currently selected post."""
-        if self.current_post is None:
-            self.notify("No post selected", severity="warning")
-            return
-
-        from .ui import EditPostScreen
-
-        post_id = self.current_post["id"]
-
-        def on_updated():
-            # Only refresh the updated post instead of reloading all posts
-            # This is much faster and preserves scroll position/selection
-            self.refresh_current_post(post_id)
-            self.notify("Post updated successfully", severity="information")
-
-        self.push_screen(EditPostScreen(self.db, post_id, on_updated))
-
     def action_new_post(self):
         """Create a new blog post."""
         from .ui import CreatePostScreen
@@ -330,26 +310,6 @@ class ContentEditorApp(App):
             self.notify("Post created successfully", severity="information")
 
         self.push_screen(CreatePostScreen(self.db, on_created))
-
-    def action_delete_post(self):
-        """Delete the currently selected post."""
-        if self.current_post is None:
-            self.notify("No post selected", severity="warning")
-            return
-
-        from .ui import ConfirmDeleteScreen
-
-        def confirm_delete():
-            try:
-                self.db.delete_post(self.current_post["id"])
-                self.notify("Post deleted successfully", severity="information")
-                self.load_posts()
-            except Exception as e:
-                self.notify(f"Error deleting post: {e}", severity="error")
-
-        self.push_screen(
-            ConfirmDeleteScreen(self.current_post["title"], confirm_delete)
-        )
 
     def action_search(self):
         """Open search modal."""
