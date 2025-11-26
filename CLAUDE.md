@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Python TUI (Terminal User Interface) application for editing blog content stored in PostgreSQL. Built with [Textual](https://textual.textualize.io/), it allows users to browse, search, create, edit, and delete posts across multiple collections.
+This is a Python TUI (Terminal User Interface) application for browsing and creating blog content via render-engine ContentManager backends. Built with [Textual](https://textual.textualize.io/), it allows users to browse, search, and create posts across multiple collections (PostgreSQL, FileSystem, and custom backends).
 
 **Key Features:**
 - Automatic collection loading from **render-engine Site configuration**
@@ -63,13 +63,14 @@ CONNECTION_STRING="postgresql://..." uv run render-engine-tui
 - `ContentManagerAdapter` - Wraps render-engine ContentManager instances for unified API
 
 **Database Layer** (`render-engine-tui/db.py`)
-- `DatabaseManager` class coordinates content operations
-- **ContentManager-First Architecture**: Tries render-engine ContentManager first, falls back to direct DB
+- `ContentManagerWrapper` class coordinates content operations
+- **ContentManager-First Architecture**: Uses render-engine ContentManager for reads and creates
 - Loads collections dynamically from config (render-engine, YAML, or defaults)
 - Automatic field mapping between ContentManager output and TUI format
 - Schema-aware: respects collection field availability (title, description, content, etc.)
-- Tags always managed via database (separate from ContentManager)
-- Key methods: `get_posts()`, `get_post()`, `create_post()`, `update_post()`, `delete_post()`
+- Supports any ContentManager backend (PostgreSQL, FileSystem, custom)
+- Key methods: `get_posts()`, `get_post()`, `create_post()`
+- Note: Update/delete operations not yet supported by render-engine ContentManager API
 
 **UI Layer** (`render-engine-tui/main.py`)
 - `ContentEditorApp` - main Textual application managing the TUI
@@ -79,7 +80,7 @@ CONNECTION_STRING="postgresql://..." uv run render-engine-tui
 - Dynamic table columns based on collection schema (title for blog, content for microblog, etc.)
 
 **UI Screens** (`render-engine-tui/ui.py`)
-- Modal screens for search, create/edit posts, delete confirmation
+- Modal screens for search and creating posts
 - Collection selection screen dynamically populated from config
 - Dynamic field visibility based on collection schema
 
@@ -152,19 +153,21 @@ The TUI automatically integrates with render-engine projects:
 
 ### ContentManager-First Architecture
 
-The TUI prioritizes **render-engine's ContentManager** for content operations:
+The TUI prioritizes **render-engine's ContentManager** for read and create operations:
 
 ```
-TUI → DatabaseManager → [ContentManager] → Content
-                    → [Database fallback if CM unavailable]
+CREATE:  TUI → ContentManager.create_entry() → [Any backend: DB, FileSystem, etc.]
+READ:    TUI → ContentManager.pages → [Any backend: DB, FileSystem, etc.]
+UPDATE:  TUI → Database (not yet supported by render-engine)
+DELETE:  TUI → Database (not yet supported by render-engine)
 ```
 
 **Benefits:**
 - ✅ Synchronized with render-engine's data layer
 - ✅ Works with any custom ContentManager
-- ✅ Falls back gracefully to direct database
 - ✅ Schema-aware (respects available fields)
-- ✅ Tags managed separately via database
+- ✅ Supports FileSystem and future backends for create/read
+- ⚠️ Update/delete not yet supported by render-engine ContentManager API
 
 See [`RENDER_ENGINE_INTEGRATION.md`](./RENDER_ENGINE_INTEGRATION.md) and [`CONTENT_MANAGER_ARCHITECTURE.md`](./CONTENT_MANAGER_ARCHITECTURE.md) for detailed setup and usage.
 
@@ -173,15 +176,13 @@ See [`RENDER_ENGINE_INTEGRATION.md`](./RENDER_ENGINE_INTEGRATION.md) and [`CONTE
 | Key | Action |
 |-----|--------|
 | `q` | Quit application |
-| `e` | Edit selected post |
 | `n` | Create new post |
-| `d` | Delete selected post |
 | `/` | Search posts |
 | `c` | Change collection |
 | `r` | Reset view |
 | `PageDown` | Next page |
 | `PageUp` | Previous page |
-| `Ctrl+S` | Save changes (in edit/create screens) |
+| `Ctrl+S` | Save changes (in create screen) |
 | `Escape` | Cancel/Go back |
 
 ## Key Implementation Details
@@ -225,7 +226,7 @@ See [`RENDER_ENGINE_INTEGRATION.md`](./RENDER_ENGINE_INTEGRATION.md) and [`CONTE
 - Manually switch between collections (`c` key)
 - Verify posts load for each collection
 - Verify tag sidebar updates appropriately
-- Create/edit/delete in each collection to ensure proper table/junction table usage
+- Create posts in each collection to ensure proper ContentManager integration
 
 ### Performance Optimization
 - Current async architecture prevents UI blocking
@@ -250,15 +251,16 @@ See [`RENDER_ENGINE_INTEGRATION.md`](./RENDER_ENGINE_INTEGRATION.md) and [`CONTE
 3. Restart TUI
 
 ### Supporting Custom ContentManager
-1. Implement `get_all()`, `get()`, `create()`, `update()`, `delete()` methods
+1. Implement `pages` property (for reads) and `create_entry()` method (for creates)
 2. Add to render-engine Collection as `ContentManager` class
 3. TUI will wrap it with `ContentManagerAdapter` automatically
+4. Note: Update/delete operations are not yet supported by render-engine ContentManager API
 
 ## Important Notes
 
 - **MCP Postgres Server**: Disabled in settings (`content_editor/.claude/settings.local.json`) - Claude Code skips the postgres MCP server integration
 - **No Tests**: This project currently has no automated test suite; testing is manual
-- **ContentManager-First**: All CRUD operations try ContentManager first, fall back to direct database - ensures sync with render-engine
+- **ContentManager-First**: Read and create operations use ContentManager for any backend - ensures sync with render-engine. Update/delete not yet supported by render-engine API.
 - **Schema-Agnostic Code**: All new code must handle arbitrary collection schemas, not hard-code field names (use `config.has_field()` to check)
 - **Collection-Agnostic UI**: Table columns, form fields, and validation must adapt to collection schema dynamically
 - **SQL Injection Prevention**: Always use `psycopg.sql.SQL()` with identifiers for table/column names, parameterized queries for values

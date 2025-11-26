@@ -242,6 +242,29 @@ class RenderEngineCollectionsLoader:
             pass
         return None
 
+    def get_content_manager_extras(self, slug: str) -> Dict[str, Any]:
+        """Get ContentManager initialization extras for a collection.
+
+        Args:
+            slug: The collection slug
+
+        Returns:
+            Dictionary of extras to pass to ContentManager.__init__()
+        """
+        try:
+            collections = self.config.get_collections()
+            if slug in collections:
+                collection = collections[slug]
+                # Get the collection name from the slug (used for database queries)
+                extras = getattr(collection, "content_manager_extras", {}).copy()
+                # Always ensure the collection name is available
+                if "collection" not in extras:
+                    extras["collection"] = slug
+                return extras
+        except Exception:
+            pass
+        return {"collection": slug}
+
 
 class ContentManagerAdapter:
     """Adapter to use render-engine ContentManager's standard pages property.
