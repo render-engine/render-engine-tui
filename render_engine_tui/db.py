@@ -117,7 +117,10 @@ class ContentManagerWrapper:
                 from .render_engine_integration import ContentManagerAdapter
 
                 config = self._get_current_config()
-                self.content_manager = ContentManagerAdapter(cm_class, config)
+                # Get extras from render-engine configuration
+                loader = self.collections_manager.get_render_engine_loader()
+                extras = loader.get_content_manager_extras(self.current_collection) if loader else {}
+                self.content_manager = ContentManagerAdapter(cm_class, config, extras)
             except Exception as e:
                 raise RuntimeError(f"Failed to set up ContentManager for {self.current_collection}: {e}")
         else:

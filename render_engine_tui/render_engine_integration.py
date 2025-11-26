@@ -276,22 +276,24 @@ class ContentManagerAdapter:
     Translates between Page objects and TUI's expected dictionary format.
     """
 
-    def __init__(self, content_manager_class, collection_config):
+    def __init__(self, content_manager_class, collection_config, content_manager_extras: Optional[Dict[str, Any]] = None):
         """Initialize the adapter.
 
         Args:
             content_manager_class: The ContentManager class from render-engine
             collection_config: CollectionConfig instance for the collection
+            content_manager_extras: Additional arguments to pass to ContentManager.__init__()
         """
         self.content_manager_class = content_manager_class
         self.collection_config = collection_config
+        self.content_manager_extras = content_manager_extras or {}
         self._instance: Optional[Any] = None
 
     def _get_instance(self):
         """Get or create a ContentManager instance."""
         if self._instance is None:
             try:
-                self._instance = self.content_manager_class()
+                self._instance = self.content_manager_class(**self.content_manager_extras)
             except Exception as e:
                 raise RuntimeError(
                     f"Failed to instantiate {self.content_manager_class.__name__}: {e}"
