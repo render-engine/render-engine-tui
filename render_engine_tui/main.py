@@ -11,7 +11,7 @@ from textual.widgets import (
 )
 from textual.binding import Binding
 
-from .db import ContentManagerWrapper
+from .render_engine_integration import ContentManager
 from .ui import AboutScreen
 
 
@@ -56,7 +56,7 @@ class ContentEditorApp(App):
     def __init__(self):
         """Initialize the app."""
         super().__init__()
-        self.content_manager = ContentManagerWrapper()
+        self.content_manager = ContentManager()
         self.current_post = None
         self.posts = []
         self.current_collection = "blog"  # Default collection

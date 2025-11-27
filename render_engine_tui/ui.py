@@ -19,7 +19,7 @@ from textual.widgets import (
 from textual.binding import Binding
 from textual.screen import Screen, ModalScreen
 
-from .db import ContentManagerWrapper
+from .render_engine_integration import ContentManager
 
 
 class SearchModal(ModalScreen):
@@ -83,7 +83,7 @@ class CreatePostScreen(Screen):
         Binding("escape", "quit_screen", "Cancel", show=True),
     ]
 
-    def __init__(self, content_manager: ContentManagerWrapper, on_created):
+    def __init__(self, content_manager: ContentManager, on_created):
         """Initialize the create post screen."""
         super().__init__()
         self.content_manager = content_manager
