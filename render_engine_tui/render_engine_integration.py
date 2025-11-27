@@ -9,9 +9,12 @@ This module bridges the TUI with render-engine, allowing it to:
 from pathlib import Path
 from typing import Dict, Optional, List, Any
 import inspect
+import logging
 
 from .config import RenderEngineConfig
 from .collections_config import CollectionConfig, Field
+
+logger = logging.getLogger(__name__)
 
 
 class RenderEngineCollectionsLoader:
@@ -300,6 +303,28 @@ class ContentManagerAdapter:
                 )
         return self._instance
 
+    def _debug_page_object(self, page: Any) -> None:
+        """Log all available attributes and methods on a Page object for debugging.
+
+        Args:
+            page: A Page object from ContentManager
+        """
+        logger.debug(f"Page object type: {type(page)}")
+        logger.debug(f"Page object class: {page.__class__.__name__}")
+
+        # Log all attributes
+        if hasattr(page, '__dict__'):
+            logger.debug(f"Page attributes: {list(page.__dict__.keys())}")
+            for key, value in page.__dict__.items():
+                if isinstance(value, str):
+                    logger.debug(f"  {key}: {value[:100]}..." if len(str(value)) > 100 else f"  {key}: {value}")
+                else:
+                    logger.debug(f"  {key}: {type(value).__name__}")
+
+        # Log properties and methods
+        public_attrs = [attr for attr in dir(page) if not attr.startswith('_')]
+        logger.debug(f"Public attributes/methods: {public_attrs[:10]}...")
+
     def _page_to_dict(self, page: Any) -> Dict[str, Any]:
         """Convert a render-engine Page object to a dictionary.
 
@@ -313,6 +338,11 @@ class ContentManagerAdapter:
         if isinstance(page, dict):
             page_dict = page
         else:
+            # Debug first page object to understand structure
+            if not hasattr(self, '_debug_logged'):
+                self._debug_page_object(page)
+                self._debug_logged = True
+
             # Try to convert Page object to dict
             page_dict = {}
             # Get basic attributes
@@ -321,11 +351,31 @@ class ContentManagerAdapter:
                 if hasattr(page, attr):
                     page_dict[attr] = getattr(page, attr)
 
+            # Try alternative attribute names for content
+            # render-engine typically uses 'body' for markdown content
+            if 'content' not in page_dict or not page_dict['content']:
+                for alt_attr in ['body', 'raw', 'markdown', 'text', '_content', 'full_content']:
+                    if hasattr(page, alt_attr):
+                        content = getattr(page, alt_attr)
+                        if content:
+                            page_dict['content'] = content
+                            logger.debug(f"Found content in '{alt_attr}' attribute")
+                            break
+
             # Check metadata if available
             if hasattr(page, 'meta') and isinstance(page.meta, dict):
                 page_dict.update(page.meta)
             elif hasattr(page, 'metadata') and isinstance(page.metadata, dict):
                 page_dict.update(page.metadata)
+
+            # Last resort: try __dict__ to see all attributes
+            if 'content' not in page_dict or not page_dict['content']:
+                if hasattr(page, '__dict__'):
+                    for key, value in page.__dict__.items():
+                        if key not in page_dict and value and isinstance(value, str):
+                            # Check if this looks like content (longer strings)
+                            if len(str(value)) > 50:
+                                page_dict[key] = value
 
         # Normalize result with required fields
         result = {
