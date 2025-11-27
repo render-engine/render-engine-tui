@@ -362,36 +362,43 @@ class ContentManagerAdapter:
             # Try to convert Page object to dict
             page_dict = {}
             # Get basic attributes
-            for attr in ['id', 'slug', 'title', 'description', 'content', 'date',
+            for attr in ['id', 'slug', 'title', 'description', 'date',
                         'external_link', 'image_url', 'tags']:
                 if hasattr(page, attr):
                     page_dict[attr] = getattr(page, attr)
 
-            # Try alternative attribute names for content
-            # render-engine typically uses 'body' for markdown content
-            if 'content' not in page_dict or not page_dict['content']:
-                for alt_attr in ['body', 'raw', 'markdown', 'text', '_content', 'full_content']:
-                    if hasattr(page, alt_attr):
-                        content = getattr(page, alt_attr)
-                        if content:
-                            page_dict['content'] = content
-                            logger.debug(f"Found content in '{alt_attr}' attribute")
-                            break
+            # Load content using the correct hierarchy for render-engine Pages
+            # 1. Try _content property (parsed content from Parser.parse())
+            if hasattr(page, '_content'):
+                try:
+                    page_dict['content'] = page._content
+                    logger.debug("Loaded content from _content property")
+                except Exception as e:
+                    logger.debug(f"Failed to get _content property: {e}")
+
+            # 2. Fallback to raw content attribute (from parse_content_path)
+            if not page_dict.get('content') and hasattr(page, 'content'):
+                content = getattr(page, 'content')
+                if content:
+                    page_dict['content'] = content
+                    logger.debug("Loaded content from content attribute")
+
+            # 3. Last resort: re-parse from content_path using Parser.parse_content_path()
+            if not page_dict.get('content') and hasattr(page, 'content_path'):
+                try:
+                    parser = getattr(page, 'Parser', None)
+                    if parser and hasattr(parser, 'parse_content_path'):
+                        attrs, raw_content = parser.parse_content_path(page.content_path)
+                        page_dict['content'] = raw_content
+                        logger.debug("Re-parsed content from content_path")
+                except Exception as e:
+                    logger.debug(f"Failed to re-parse from content_path: {e}")
 
             # Check metadata if available
             if hasattr(page, 'meta') and isinstance(page.meta, dict):
                 page_dict.update(page.meta)
             elif hasattr(page, 'metadata') and isinstance(page.metadata, dict):
                 page_dict.update(page.metadata)
-
-            # Last resort: try __dict__ to see all attributes
-            if 'content' not in page_dict or not page_dict['content']:
-                if hasattr(page, '__dict__'):
-                    for key, value in page.__dict__.items():
-                        if key not in page_dict and value and isinstance(value, str):
-                            # Check if this looks like content (longer strings)
-                            if len(str(value)) > 50:
-                                page_dict[key] = value
 
         # Normalize result with required fields
         result = {
