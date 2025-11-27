@@ -7,18 +7,27 @@ This module bridges the TUI with render-engine, allowing it to:
 """
 
 from pathlib import Path
-from typing import Dict, Optional, List, Any
+from typing import Dict, Optional, List, Any, Tuple
+import importlib
 import inspect
+import sys
+import tomllib
 import logging
 
-from .config import RenderEngineConfig
 from .collections_config import CollectionConfig, Field
+from render_engine import Site, Collection
 
 logger = logging.getLogger(__name__)
 
 
 class RenderEngineCollectionsLoader:
-    """Loads collection configurations from a render-engine Site."""
+    """Loads collection configurations from a render-engine Site.
+
+    Handles all aspects of loading and parsing render-engine configuration:
+    - Reading pyproject.toml
+    - Dynamically importing the Site
+    - Extracting collection schemas
+    """
 
     def __init__(self, project_root: Optional[Path] = None):
         """Initialize the loader.
@@ -28,14 +37,139 @@ class RenderEngineCollectionsLoader:
                          Defaults to current working directory.
         """
         self.project_root = project_root or Path.cwd()
-        self.config = RenderEngineConfig(self.project_root)
+        self.pyproject_path = self.project_root / "pyproject.toml"
+        self._config: Optional[Dict[str, Any]] = None
+        self._site: Optional[Site] = None
+        self._module: Optional[Any] = None
         self.collections: Dict[str, CollectionConfig] = {}
         self._load_collections()
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        """Load and cache the [tool.render-engine] configuration."""
+        if self._config is None:
+            self._config = self._load_config()
+        return self._config
+
+    def _load_config(self) -> Dict[str, Any]:
+        """Read pyproject.toml and extract [tool.render-engine] section.
+
+        Returns:
+            Dictionary containing render-engine configuration
+
+        Raises:
+            FileNotFoundError: If pyproject.toml doesn't exist
+            KeyError: If [tool.render-engine] section is missing
+        """
+        if not self.pyproject_path.exists():
+            raise FileNotFoundError(
+                f"pyproject.toml not found at {self.pyproject_path}. "
+                "Make sure you're running from a render-engine project directory."
+            )
+
+        with open(self.pyproject_path, "rb") as f:
+            pyproject = tomllib.load(f)
+
+        if "tool" not in pyproject or "render-engine" not in pyproject["tool"]:
+            raise KeyError(
+                "[tool.render-engine] section not found in pyproject.toml. "
+                "Add configuration like:\n"
+                "[tool.render-engine.cli]\n"
+                'module = "routes"\n'
+                'site = "app"'
+            )
+
+        return pyproject["tool"]["render-engine"]
+
+    def _get_site_reference(self) -> Tuple[str, str]:
+        """Get the module and site object names from configuration.
+
+        Returns:
+            Tuple of (module_name, site_name)
+        """
+        cli_config = self.config.get("cli", {})
+        module = cli_config.get("module")
+        site = cli_config.get("site")
+
+        if not module or not site:
+            raise ValueError(
+                "[tool.render-engine.cli] must specify both 'module' and 'site'.\n"
+                "Example:\n"
+                "[tool.render-engine.cli]\n"
+                'module = "routes"\n'
+                'site = "app"'
+            )
+
+        return module, site
+
+    def _load_site(self) -> Site:
+        """Dynamically import and return the render-engine Site object.
+
+        Returns:
+            The instantiated Site object from the configured module
+
+        Raises:
+            ImportError: If module cannot be imported
+            AttributeError: If site object doesn't exist in module
+        """
+        if self._site is not None:
+            return self._site
+
+        module_name, site_name = self._get_site_reference()
+
+        # Add project root to sys.path so we can import the module
+        project_root_str = str(self.project_root)
+        if project_root_str not in sys.path:
+            sys.path.insert(0, project_root_str)
+
+        try:
+            # Import the module
+            self._module = importlib.import_module(module_name)
+
+            # Get the site object
+            if not hasattr(self._module, site_name):
+                raise AttributeError(
+                    f"Module '{module_name}' does not have a '{site_name}' attribute. "
+                    f"Check your [tool.render-engine.cli] configuration."
+                )
+
+            self._site = getattr(self._module, site_name)
+
+            if not isinstance(self._site, Site):
+                raise TypeError(
+                    f"{module_name}.{site_name} is not a render_engine.Site instance. "
+                    f"Got {type(self._site)} instead."
+                )
+
+            return self._site
+
+        except ImportError as e:
+            raise ImportError(
+                f"Failed to import module '{module_name}'. "
+                f"Make sure the module exists and is importable from {self.project_root}. "
+                f"Original error: {e}"
+            ) from e
+
+    def _get_render_engine_collections(self) -> Dict[str, Collection]:
+        """Get all collections registered with the site.
+
+        Returns:
+            Dictionary mapping collection slugs to Collection instances
+        """
+        site = self._load_site()
+
+        # Filter route_list to only include Collection instances
+        # (route_list also includes Page instances)
+        return {
+            slug: entry
+            for slug, entry in site.route_list.items()
+            if isinstance(entry, Collection)
+        }
 
     def _load_collections(self) -> None:
         """Load collections from render-engine Site."""
         try:
-            collections = self.config.get_collections()
+            collections = self._get_render_engine_collections()
 
             for slug, collection in collections.items():
                 # Try to extract collection config from render-engine collection
@@ -98,35 +232,19 @@ class RenderEngineCollectionsLoader:
         Returns:
             Table name if found, None otherwise
         """
-        try:
-            # Try to get from ContentManager
-            if hasattr(collection, "ContentManager"):
-                cm = collection.ContentManager
+        # Try ContentManager first
+        cm = getattr(collection, "ContentManager", None)
+        if cm:
+            if table := getattr(cm, "table_name", None):
+                return table
+            if table := getattr(cm, "_table", None):
+                return table
 
-                # For PostgresContentManager
-                if hasattr(cm, "table_name"):
-                    return cm.table_name
-
-                # Check if ContentManager has a table attribute
-                if hasattr(cm, "_table"):
-                    return cm._table
-
-                # Try to instantiate and get table name
-                if hasattr(cm, "__init__"):
-                    # Try to get from class attributes
-                    for name, value in inspect.getmembers(cm):
-                        if "table" in name.lower() and isinstance(value, str):
-                            return value
-
-            # Try to get from collection itself
-            if hasattr(collection, "table_name"):
-                return collection.table_name
-
-            if hasattr(collection, "_table"):
-                return collection._table
-
-        except Exception:
-            pass
+        # Fallback to collection attributes
+        if table := getattr(collection, "table_name", None):
+            return table
+        if table := getattr(collection, "_table", None):
+            return table
 
         return None
 
@@ -216,7 +334,7 @@ class RenderEngineCollectionsLoader:
         """Check if a collection exists."""
         return name in self.collections
 
-    def get_render_engine_collections(self) -> Dict[str, Any]:
+    def get_render_engine_collections(self) -> Dict[str, Collection]:
         """Get the original render-engine Collection objects.
 
         Useful for accessing ContentManager instances.
@@ -224,7 +342,7 @@ class RenderEngineCollectionsLoader:
         Returns:
             Dictionary mapping collection slugs to Collection instances
         """
-        return self.config.get_collections()
+        return self._get_render_engine_collections()
 
     def get_content_manager_for_collection(self, slug: str) -> Optional[Any]:
         """Get the ContentManager class for a collection.
@@ -236,7 +354,7 @@ class RenderEngineCollectionsLoader:
             The ContentManager class if available, None otherwise
         """
         try:
-            collections = self.config.get_collections()
+            collections = self.get_render_engine_collections()
             if slug in collections:
                 collection = collections[slug]
                 if hasattr(collection, "ContentManager"):
@@ -255,7 +373,7 @@ class RenderEngineCollectionsLoader:
             Dictionary of extras to pass to ContentManager.__init__()
         """
         try:
-            collections = self.config.get_collections()
+            collections = self.get_render_engine_collections()
             if slug in collections:
                 collection = collections[slug]
                 # Get the collection name from the slug (used for database queries)
@@ -297,15 +415,11 @@ class ContentManager:
             ValueError: If collection is invalid
             RuntimeError: If render-engine config not found or ContentManager setup fails
         """
-        from .collections_config import CollectionsManager
-
         # Load collections from render-engine
-        self.collections_manager = CollectionsManager(
-            project_root=project_root,
-        )
+        self.loader = RenderEngineCollectionsLoader(project_root=project_root)
 
-        if not self.collections_manager.validate_collection(collection):
-            available = self.collections_manager.get_available_collection_names()
+        if not self.loader.validate_collection(collection):
+            available = self.loader.get_available_collection_names()
             raise ValueError(f"Invalid collection '{collection}'. Available: {available}")
 
         self.current_collection = collection
@@ -316,19 +430,11 @@ class ContentManager:
     def AVAILABLE_COLLECTIONS(self) -> Dict[str, str]:
         """Get available collections from config."""
         return {name: config.display_name
-                for name, config in self.collections_manager.get_all_collections().items()}
+                for name, config in self.loader.get_all_collections().items()}
 
     def _get_current_config(self):
         """Get the config for the current collection."""
-        return self.collections_manager.get_collection(self.current_collection)
-
-    def is_using_render_engine(self) -> bool:
-        """Check if collections are loaded from render-engine.
-
-        Returns:
-            True if render-engine integration is active
-        """
-        return self.collections_manager.has_render_engine_integration()
+        return self.loader.get_collection(self.current_collection)
 
     def has_content_manager(self) -> bool:
         """Check if the current collection has a ContentManager.
@@ -344,15 +450,14 @@ class ContentManager:
         Raises:
             RuntimeError: If ContentManager cannot be set up
         """
-        cm_class = self.collections_manager.get_content_manager_class(
+        cm_class = self.loader.get_content_manager_for_collection(
             self.current_collection
         )
         if cm_class:
             try:
                 config = self._get_current_config()
                 # Get extras from render-engine configuration
-                loader = self.collections_manager.get_render_engine_loader()
-                extras = loader.get_content_manager_extras(self.current_collection) if loader else {}
+                extras = self.loader.get_content_manager_extras(self.current_collection)
                 self._content_manager_instance = cm_class(**extras)
             except Exception as e:
                 raise RuntimeError(f"Failed to set up ContentManager for {self.current_collection}: {e}")
@@ -372,8 +477,8 @@ class ContentManager:
             ValueError: If collection name is invalid
             RuntimeError: If ContentManager setup fails
         """
-        if not self.collections_manager.validate_collection(collection):
-            available = self.collections_manager.get_available_collection_names()
+        if not self.loader.validate_collection(collection):
+            available = self.loader.get_available_collection_names()
             raise ValueError(f"Invalid collection '{collection}'. Available: {available}")
         self.current_collection = collection
         self._setup_content_manager()
@@ -408,35 +513,49 @@ class ContentManager:
         except Exception as e:
             raise RuntimeError(f"Failed to fetch posts: {e}")
 
+    def _normalize_post(self, item: Dict[str, Any], full: bool = False) -> Dict[str, Any]:
+        """Normalize a ContentManager item to TUI format.
+
+        Args:
+            item: Item from ContentManager
+            full: If True, include all fields (content, external_link, image_url).
+                  If False, include only basic fields and content preview.
+
+        Returns:
+            Post dictionary with normalized fields
+        """
+        post = {
+            "id": item.get("id"),
+            "slug": item.get("slug", ""),
+            "title": item.get("title", ""),
+            "description": item.get("description", ""),
+            "date": item.get("date"),
+        }
+
+        if full:
+            # For full posts: include all available fields
+            post.update({
+                "content": item.get("content", ""),
+                "external_link": item.get("external_link"),
+                "image_url": item.get("image_url"),
+            })
+        else:
+            # For list views: use content preview if title is missing
+            if not post["title"] and "content" in item:
+                post["description"] = str(item.get("content", ""))[:100]
+
+        return post
+
     def _normalize_posts(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Normalize ContentManager output to TUI format.
+        """Normalize list of ContentManager items to TUI format.
 
         Args:
             items: List of items from ContentManager
 
         Returns:
-            List of posts with normalized fields (id, slug, title, description, date)
+            List of normalized posts with basic fields
         """
-        config = self._get_current_config()
-        normalized = []
-
-        for item in items:
-            post = {
-                "id": item.get("id"),
-                "slug": item.get("slug", ""),
-                "title": item.get("title", ""),
-                "description": item.get("description", ""),
-                "date": item.get("date"),
-            }
-
-            # If title not available, use content preview
-            if not post["title"] and "content" in item:
-                post["title"] = ""  # Keep title empty for content-only collections
-                post["description"] = str(item.get("content", ""))[:100]
-
-            normalized.append(post)
-
-        return normalized
+        return [self._normalize_post(item, full=False) for item in items]
 
     def get_post(self, post_id: int) -> Optional[Dict[str, Any]]:
         """Get a single post with all details from current collection.
@@ -456,34 +575,11 @@ class ContentManager:
         try:
             post = self._get(post_id)
             if post:
-                # Normalize output
-                post = self._normalize_single_post(post)
-                return post
+                # Normalize output with full fields
+                return self._normalize_post(post, full=True)
             return None
         except Exception as e:
             raise RuntimeError(f"Failed to fetch post {post_id}: {e}")
-
-    def _normalize_single_post(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        """Normalize a single ContentManager item to TUI format.
-
-        Args:
-            item: Item from ContentManager
-
-        Returns:
-            Post dictionary with normalized fields
-        """
-        config = self._get_current_config()
-        post = {
-            "id": item.get("id"),
-            "slug": item.get("slug", ""),
-            "title": item.get("title", ""),
-            "description": item.get("description", ""),
-            "content": item.get("content", ""),
-            "external_link": item.get("external_link"),
-            "image_url": item.get("image_url"),
-            "date": item.get("date"),
-        }
-        return post
 
     def create_post(
         self,
@@ -588,6 +684,17 @@ class ContentManager:
             raise RuntimeError("ContentManager not initialized")
         return self._content_manager_instance
 
+    def _validate_has_pages(self, manager: Any) -> None:
+        """Validate that manager has a pages property.
+
+        Raises:
+            RuntimeError: If manager doesn't have pages property
+        """
+        if not hasattr(manager, "pages"):
+            raise RuntimeError(
+                f"{manager.__class__.__name__} does not have a pages property"
+            )
+
     def _get_all(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
         """Get all items with pagination using the standard pages property.
 
@@ -599,19 +706,12 @@ class ContentManager:
             List of item dictionaries
         """
         manager = self._get_instance()
-
-        # Use standard ContentManager API: pages property
-        if not hasattr(manager, "pages"):
-            raise RuntimeError(
-                f"{manager.__class__.__name__} does not have a pages property"
-            )
+        self._validate_has_pages(manager)
 
         try:
             # Get all pages and convert to dicts
             all_pages = list(manager.pages)
             pages_as_dicts = [self._page_to_dict(page) for page in all_pages]
-
-            # Apply pagination
             return pages_as_dicts[offset : offset + limit]
         except Exception as e:
             raise RuntimeError(f"Failed to fetch pages: {e}")
@@ -633,11 +733,7 @@ class ContentManager:
         """
         manager = self._get_instance()
         config = self._get_current_config()
-
-        if not hasattr(manager, "pages"):
-            raise RuntimeError(
-                f"{manager.__class__.__name__} does not have a pages property"
-            )
+        self._validate_has_pages(manager)
 
         try:
             all_pages = list(manager.pages)
@@ -655,7 +751,6 @@ class ContentManager:
                             filtered.append(item)
                             break
 
-            # Apply pagination
             return filtered[offset : offset + limit]
         except Exception as e:
             raise RuntimeError(f"Failed to search pages: {e}")
@@ -670,11 +765,7 @@ class ContentManager:
             Item dictionary or None if not found
         """
         manager = self._get_instance()
-
-        if not hasattr(manager, "pages"):
-            raise RuntimeError(
-                f"{manager.__class__.__name__} does not have a pages property"
-            )
+        self._validate_has_pages(manager)
 
         try:
             # Search through pages for matching ID
@@ -716,44 +807,6 @@ class ContentManager:
         except Exception as e:
             raise RuntimeError(f"Failed to create entry via ContentManager: {e}")
 
-    def _debug_page_object(self, page: Any) -> None:
-        """Log all available attributes and methods on a Page object for debugging.
-
-        Args:
-            page: A Page object from ContentManager
-        """
-        logger.debug(f"\n{'='*80}")
-        logger.debug(f"Page object type: {type(page)}")
-        logger.debug(f"Page object class: {page.__class__.__name__}")
-        logger.debug(f"Page module: {page.__class__.__module__}")
-
-        # Log all attributes
-        if hasattr(page, '__dict__'):
-            logger.debug(f"\nPage __dict__ attributes ({len(page.__dict__)} total):")
-            for key, value in page.__dict__.items():
-                if isinstance(value, str):
-                    val_preview = value[:100] + "..." if len(value) > 100 else value
-                    logger.debug(f"  {key}: [{type(value).__name__}] {repr(val_preview)}")
-                elif isinstance(value, (int, float, bool, type(None))):
-                    logger.debug(f"  {key}: [{type(value).__name__}] {repr(value)}")
-                else:
-                    logger.debug(f"  {key}: [{type(value).__name__}]")
-
-        # Check specific attributes we're looking for
-        logger.debug(f"\nSpecific attribute checks:")
-        for attr in ['id', 'slug', 'title', 'description', 'content', 'body', 'date', 'raw', 'markdown']:
-            if hasattr(page, attr):
-                val = getattr(page, attr)
-                if isinstance(val, str):
-                    preview = val[:50] + "..." if len(val) > 50 else val
-                    logger.debug(f"  {attr}: EXISTS - {repr(preview)}")
-                else:
-                    logger.debug(f"  {attr}: EXISTS - type={type(val).__name__}, value={repr(val)}")
-            else:
-                logger.debug(f"  {attr}: NOT FOUND")
-
-        logger.debug(f"{'='*80}\n")
-
     def _page_to_dict(self, page: Any) -> Dict[str, Any]:
         """Convert a render-engine Page object to a dictionary.
 
@@ -763,58 +816,30 @@ class ContentManager:
         Returns:
             Dictionary with normalized fields (id, slug, title, description, content, date)
         """
-        # Handle both dict-like and object-like pages
+        # Handle dict-like pages
         if isinstance(page, dict):
             page_dict = page
         else:
-            # Debug first page object to understand structure
-            if not hasattr(self, '_debug_logged'):
-                self._debug_page_object(page)
-                self._debug_logged = True
-
-            # Try to convert Page object to dict
+            # Convert Page object to dict by extracting attributes
             page_dict = {}
-            # Get basic attributes
-            for attr in ['id', 'slug', 'title', 'description', 'date',
-                        'external_link', 'image_url', 'tags']:
+            for attr in ['id', 'slug', 'title', 'description', 'date', 'external_link', 'image_url', 'tags']:
                 if hasattr(page, attr):
                     page_dict[attr] = getattr(page, attr)
 
-            # Load content using the correct hierarchy for render-engine Pages
-            # 1. Try _content property (parsed content from Parser.parse())
+            # Extract content with fallback hierarchy
             if hasattr(page, '_content'):
-                try:
-                    page_dict['content'] = page._content
-                    logger.debug("Loaded content from _content property")
-                except Exception as e:
-                    logger.debug(f"Failed to get _content property: {e}")
+                page_dict['content'] = page._content
+            elif hasattr(page, 'content'):
+                page_dict['content'] = getattr(page, 'content')
 
-            # 2. Fallback to raw content attribute (from parse_content_path)
-            if not page_dict.get('content') and hasattr(page, 'content'):
-                content = getattr(page, 'content')
-                if content:
-                    page_dict['content'] = content
-                    logger.debug("Loaded content from content attribute")
-
-            # 3. Last resort: re-parse from content_path using Parser.parse_content_path()
-            if not page_dict.get('content') and hasattr(page, 'content_path'):
-                try:
-                    parser = getattr(page, 'Parser', None)
-                    if parser and hasattr(parser, 'parse_content_path'):
-                        attrs, raw_content = parser.parse_content_path(page.content_path)
-                        page_dict['content'] = raw_content
-                        logger.debug("Re-parsed content from content_path")
-                except Exception as e:
-                    logger.debug(f"Failed to re-parse from content_path: {e}")
-
-            # Check metadata if available
+            # Merge metadata if available
             if hasattr(page, 'meta') and isinstance(page.meta, dict):
                 page_dict.update(page.meta)
             elif hasattr(page, 'metadata') and isinstance(page.metadata, dict):
                 page_dict.update(page.metadata)
 
         # Normalize result with required fields
-        result = {
+        return {
             "id": page_dict.get("id"),
             "slug": page_dict.get("slug", ""),
             "title": page_dict.get("title", ""),
@@ -824,4 +849,3 @@ class ContentManager:
             "image_url": page_dict.get("image_url"),
             "date": page_dict.get("date"),
         }
-        return result

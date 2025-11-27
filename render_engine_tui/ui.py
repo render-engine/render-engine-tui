@@ -19,7 +19,7 @@ from textual.widgets import (
 from textual.binding import Binding
 from textual.screen import Screen, ModalScreen
 
-from .render_engine_integration import ContentManager
+from .render_engine_integration import ContentManager, RenderEngineCollectionsLoader
 
 
 class SearchModal(ModalScreen):
@@ -234,20 +234,19 @@ class CollectionSelectScreen(ModalScreen):
     }
     """
 
-    def __init__(self, on_collection_selected, collections_manager=None):
+    def __init__(self, on_collection_selected, loader=None):
         """Initialize the collection selection modal.
 
         Args:
             on_collection_selected: Callback function that receives the selected collection name
-            collections_manager: CollectionsManager instance (optional, creates new one if not provided)
+            loader: RenderEngineCollectionsLoader instance (optional, creates new one if not provided)
         """
         super().__init__()
         self.on_collection_selected = on_collection_selected
-        self.collections_manager = collections_manager
-        if self.collections_manager is None:
+        self.loader = loader
+        if self.loader is None:
             # Create a new instance if not provided
-            from .collections_config import CollectionsManager
-            self.collections_manager = CollectionsManager()
+            self.loader = RenderEngineCollectionsLoader()
 
     def compose(self) -> ComposeResult:
         """Compose the collection selection modal."""
@@ -261,8 +260,8 @@ class CollectionSelectScreen(ModalScreen):
         self.title = "Change Collection"
         list_view = self.query_one("#collection-list", ListView)
 
-        # Add available collections from CollectionsManager
-        for collection_name, collection_config in self.collections_manager.get_all_collections().items():
+        # Add available collections from loader
+        for collection_name, collection_config in self.loader.get_all_collections().items():
             label = Label(collection_config.display_name, id=f"collection-{collection_name}")
             list_item = ListItem(label, id=collection_name)
             list_view.append(list_item)
