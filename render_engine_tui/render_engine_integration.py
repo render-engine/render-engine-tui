@@ -257,13 +257,13 @@ class RenderEngineCollectionsLoader:
                 collection = collections[slug]
                 # Get the collection name from the slug (used for database queries)
                 extras = getattr(collection, "content_manager_extras", {}).copy()
-                # Always ensure the collection name is available
+                # Always ensure the collection instance is available
                 if "collection" not in extras:
-                    extras["collection"] = slug
+                    extras["collection"] = collection
                 return extras
         except Exception:
             pass
-        return {"collection": slug}
+        return {}
 
 
 class ContentManagerAdapter:
