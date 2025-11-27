@@ -10,7 +10,6 @@ from textual.widgets import (
     MarkdownViewer,
 )
 from textual.binding import Binding
-from textual import work
 
 from .db import ContentManagerWrapper
 from .ui import AboutScreen
@@ -61,7 +60,6 @@ class ContentEditorApp(App):
         self.current_post = None
         self.posts = []
         self.current_collection = "blog"  # Default collection
-        self.current_post_full = None  # Cache full post data to avoid duplicate fetches
 
         # Pagination state
         self.page_size = 50  # Number of posts per page
@@ -152,8 +150,7 @@ class ContentEditorApp(App):
 
                         # Update the preview if it's the currently selected post
                         if self.current_post and self.current_post["id"] == post_id:
-                            self.current_post_full = updated_post
-                            self._update_preview_content(updated_post)
+                            self.update_preview()
                     break
         except Exception as e:
             self.notify(f"Error refreshing post: {e}", severity="error")
@@ -202,11 +199,7 @@ class ContentEditorApp(App):
 
 
     def update_preview(self):
-        """Update the preview panel with the currently selected post.
-
-        Triggers an async fetch of full post content to avoid blocking the UI.
-        Shows summary while loading, then updates with full content when ready.
-        """
+        """Update the preview panel with the currently selected post."""
         table = self.query_one("#posts-table", DataTable)
         preview = self.query_one("#preview-content", MarkdownViewer)
 
@@ -218,81 +211,34 @@ class ContentEditorApp(App):
             post = self.posts[table.cursor_row]
             self.current_post = post
 
-            # Show a quick preview while we fetch the full content asynchronously
-            title = post.get('title', '')
-            preview_text = f"# {title}\n\n*Loading full content...*" if title else "*Loading content...*"
-            preview.document.update(preview_text)
+            try:
+                # Get full post content
+                full_post = self.content_manager.get_post(post["id"])
+                if not full_post:
+                    preview.document.update("Post not found")
+                    return
 
-            # Fetch full post content asynchronously
-            self.fetch_full_post(post["id"])
+                # Extract title and content
+                title = full_post.get("title", "")
+                content = full_post.get("content", "")
+
+                # Fallback to description if no content
+                if not content:
+                    content = full_post.get("description", "")
+                    if content:
+                        content = f"*{content}*"  # italicize description
+
+                # Display with title if available
+                if title:
+                    preview_content = f"# {title}\n\n{content}" if content else f"# {title}"
+                else:
+                    preview_content = content if content else "(No content available)"
+
+                preview.document.update(preview_content)
+            except Exception as e:
+                self.notify(f"Error loading post content: {e}", severity="error")
         else:
             preview.document.update("Select a post to preview")
-
-    @work(exclusive=True, thread=True)
-    def fetch_full_post(self, post_id: int) -> Optional[Dict[str, Any]]:
-        """Fetch full post content asynchronously.
-
-        This runs in a background worker so it doesn't block the UI.
-        Uses exclusive=True to ensure only one fetch runs at a time.
-
-        Args:
-            post_id: The ID of the post to fetch
-
-        Returns:
-            Full post dict or None if not found
-        """
-        try:
-            full_post = self.content_manager.get_post(post_id)
-            if full_post:
-                self.current_post_full = full_post
-                # Schedule UI update back on the main event loop thread
-                self.call_from_thread(self._update_preview_content, full_post)
-            return full_post
-        except Exception as e:
-            # Schedule error notification back on the main event loop thread
-            self.call_from_thread(
-                lambda: self.notify(f"Error loading full post content: {e}", severity="error")
-            )
-            return None
-
-    def _update_preview_content(self, full_post: Dict[str, Any]) -> None:
-        """Update the preview panel with full post content.
-
-        Called when async post fetch completes.
-
-        Args:
-            full_post: The full post dict with all content
-        """
-        preview = self.query_one("#preview-content", MarkdownViewer)
-        title = full_post.get("title", self.current_post.get("title", "")) if self.current_post else full_post.get("title", "")
-
-        # Get content with multiple fallbacks
-        content = None
-
-        # Try primary sources first
-        for field in ["content", "body", "raw", "markdown", "text"]:
-            candidate = full_post.get(field)
-            if candidate and isinstance(candidate, str) and candidate.strip():
-                content = candidate.strip()
-                break
-
-        # Fallback to description if no content found
-        if not content:
-            candidate = full_post.get("description")
-            if candidate and isinstance(candidate, str) and candidate.strip():
-                content = f"*{candidate.strip()}*"  # italicize description to distinguish it
-
-        # Last resort fallback
-        if not content:
-            content = "(No content available)"
-
-        # Format the preview content with title if available
-        if title:
-            preview_content = f"# {title}\n\n{content}"
-        else:
-            preview_content = content if content else "(No content available)"
-
-        preview.document.update(preview_content)
 
     @property
     def cursor_row(self):
