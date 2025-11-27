@@ -218,22 +218,41 @@ class ContentEditorApp(App):
                     preview.document.update("Post not found")
                     return
 
-                # Extract title and content
+                # Build preview with all post variables
+                preview_lines = []
+
+                # Title
                 title = full_post.get("title", "")
-                content = full_post.get("content", "")
-
-                # Fallback to description if no content
-                if not content:
-                    content = full_post.get("description", "")
-                    if content:
-                        content = f"*{content}*"  # italicize description
-
-                # Display with title if available
                 if title:
-                    preview_content = f"# {title}\n\n{content}" if content else f"# {title}"
-                else:
-                    preview_content = content if content else "(No content available)"
+                    preview_lines.append(f"# {title}")
+                    preview_lines.append("")
 
+                # Post metadata
+                preview_lines.append("## Metadata")
+                if full_post.get("id"):
+                    preview_lines.append(f"**ID:** {full_post.get('id')}")
+                if full_post.get("slug"):
+                    preview_lines.append(f"**Slug:** {full_post.get('slug')}")
+                if full_post.get("date"):
+                    preview_lines.append(f"**Date:** {full_post.get('date')}")
+                if full_post.get("description"):
+                    preview_lines.append(f"**Description:** {full_post.get('description')}")
+                if full_post.get("external_link"):
+                    preview_lines.append(f"**External Link:** {full_post.get('external_link')}")
+                if full_post.get("image_url"):
+                    preview_lines.append(f"**Image URL:** {full_post.get('image_url')}")
+
+                preview_lines.append("")
+
+                # Content
+                content = full_post.get("content", "")
+                if content:
+                    preview_lines.append("## Content")
+                    preview_lines.append(content)
+                else:
+                    preview_lines.append("*(No content available)*")
+
+                preview_content = "\n".join(preview_lines)
                 preview.document.update(preview_content)
             except Exception as e:
                 self.notify(f"Error loading post content: {e}", severity="error")
