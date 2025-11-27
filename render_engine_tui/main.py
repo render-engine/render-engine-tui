@@ -163,6 +163,7 @@ class ContentEditorApp(App):
 
         Shows title (with slug fallback) for all collections.
         Content preview is shown in the preview panel when selected.
+        Posts are sorted by date (newest first).
         """
         table = self.query_one("#posts-table", DataTable)
         table.clear(columns=True)
@@ -175,8 +176,15 @@ class ContentEditorApp(App):
             "Date",
         )
 
+        # Sort posts by date (newest first), handling None dates
+        sorted_posts = sorted(
+            self.posts,
+            key=lambda p: p["date"] if p["date"] else None,
+            reverse=True
+        )
+
         # Add rows with title (fallback to slug if no title)
-        for post in self.posts:
+        for post in sorted_posts:
             date_str = post["date"].strftime("%Y-%m-%d") if post["date"] else "N/A"
 
             # Show title, or fallback to slug if no title available
