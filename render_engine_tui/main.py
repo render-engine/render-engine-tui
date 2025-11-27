@@ -2,18 +2,17 @@
 
 from typing import Optional, Any, Dict
 from textual.app import ComposeResult, App
-from textual.containers import Container, Vertical, Horizontal
+from textual.containers import Vertical
 from textual.widgets import (
     Header,
     Footer,
-    Static,
     DataTable,
     MarkdownViewer,
 )
 from textual.binding import Binding
 from textual import work
 
-from .db import DatabaseManager
+from .db import ContentManagerWrapper
 from .ui import AboutScreen
 
 
@@ -32,25 +31,37 @@ class ContentEditorApp(App):
     ]
 
     CSS = """
+    Screen {
+        layout: vertical;
+    }
+
+    #main-container {
+        width: 100%;
+        height: 1fr;
+        layout: vertical;
+    }
+
     #preview-content {
-        height: 80%;
-        overflow: auto;
+        width: 100%;
+        height: 40%;
+        border: solid $accent;
     }
 
     #posts-table {
         width: 100%;
+        height: 60%;
+        border: solid $accent;
     }
     """
 
     def __init__(self):
         """Initialize the app."""
         super().__init__()
-        self.db = DatabaseManager()
+        self.content_manager = ContentManagerWrapper()
         self.current_post = None
         self.posts = []
         self.current_collection = "blog"  # Default collection
         self.current_post_full = None  # Cache full post data to avoid duplicate fetches
-        self.preview_loading = False  # Track if preview fetch is in progress
 
         # Pagination state
         self.page_size = 50  # Number of posts per page
@@ -60,12 +71,13 @@ class ContentEditorApp(App):
     def compose(self) -> ComposeResult:
         """Compose the app."""
         yield Header()
-        yield MarkdownViewer(
-            "Select a post to preview",
-            id="preview-content",
-            show_table_of_contents=False,
-        )
-        yield DataTable(id="posts-table")
+        with Vertical(id="main-container"):
+            yield MarkdownViewer(
+                "Select a post to preview",
+                id="preview-content",
+                show_table_of_contents=False,
+            )
+            yield DataTable(id="posts-table")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -84,13 +96,13 @@ class ContentEditorApp(App):
 
     def _update_subtitle(self) -> None:
         """Update the subtitle to show current collection."""
-        collection_display = self.db.AVAILABLE_COLLECTIONS.get(
+        collection_display = self.content_manager.AVAILABLE_COLLECTIONS.get(
             self.current_collection, self.current_collection
         )
-        self.sub_title = f"Editing {collection_display}"
+        self.sub_title = f"Browsing {collection_display}"
 
     def load_posts(self, search: Optional[str] = None, page: int = 0):
-        """Load posts from database with pagination support.
+        """Load posts from render-engine with pagination support.
 
         Args:
             search: Optional search term to filter posts
@@ -100,7 +112,7 @@ class ContentEditorApp(App):
             self.current_page = page
             self.current_search = search
             offset = page * self.page_size
-            self.posts = self.db.get_posts(search=search, limit=self.page_size, offset=offset)
+            self.posts = self.content_manager.get_posts(search=search, limit=self.page_size, offset=offset)
             self.populate_table()
         except Exception as e:
             self.notify(f"Error loading posts: {e}", severity="error")
@@ -119,7 +131,7 @@ class ContentEditorApp(App):
             for i, post in enumerate(self.posts):
                 if post["id"] == post_id:
                     # Fetch updated post data
-                    updated_post = self.db.get_post(post_id)
+                    updated_post = self.content_manager.get_post(post_id)
                     if updated_post:
                         # Update the post dict in our list
                         self.posts[i] = {
@@ -133,11 +145,9 @@ class ContentEditorApp(App):
                         table = self.query_one("#posts-table", DataTable)
                         date_str = self.posts[i]["date"].strftime("%Y-%m-%d") if self.posts[i]["date"] else "N/A"
 
-                        # Update row data
-                        if self.current_collection == "microblog":
-                            table.update_cell(str(post_id), "Content", self.posts[i]["description"][:50])
-                        else:
-                            table.update_cell(str(post_id), "Title", self.posts[i]["title"])
+                        # Update row data (title with fallback to slug)
+                        title_display = self.posts[i]["title"] or self.posts[i].get("slug", "(untitled)")
+                        table.update_cell(str(post_id), "Title", title_display)
                         table.update_cell(str(post_id), "Date", date_str)
 
                         # Update the preview if it's the currently selected post
@@ -148,57 +158,33 @@ class ContentEditorApp(App):
         except Exception as e:
             self.notify(f"Error refreshing post: {e}", severity="error")
 
-    def _get_display_field_for_collection(self) -> str:
-        """Get the main field to display in table for current collection.
-
-        Returns the field name that should be shown in the table
-        (e.g., 'title' for blog, 'content' for microblog).
-        """
-        config = self.db._get_current_config()
-        if config.has_field("title"):
-            return "title"
-        elif config.has_field("content"):
-            return "content"
-        else:
-            return "slug"
-
     def populate_table(self):
         """Populate the data table with posts.
 
-        Collection-specific column handling based on collection config.
+        Shows title (with slug fallback) for all collections.
+        Content preview is shown in the preview panel when selected.
         """
         table = self.query_one("#posts-table", DataTable)
         table.clear(columns=True)
         table.cursor_type = "row"
 
-        # Determine which field to display based on collection config
-        display_field = self._get_display_field_for_collection()
-        column_name = display_field.title()
-
-        # Add columns
+        # Add columns: ID, Title, Date
         table.add_columns(
             "ID",
-            column_name,
+            "Title",
             "Date",
         )
 
-        # Add rows
+        # Add rows with title (fallback to slug if no title)
         for post in self.posts:
             date_str = post["date"].strftime("%Y-%m-%d") if post["date"] else "N/A"
 
-            # Get the value for the display field
-            if display_field == "content":
-                # Show content preview
-                content_preview = post.get("description", "(empty)")[:50] if post.get("description") else "(empty)"
-                display_value = content_preview
-            elif display_field == "title":
-                display_value = post.get("title", "")
-            else:
-                display_value = post.get(display_field, "")
+            # Show title, or fallback to slug if no title available
+            title_display = post.get("title") or post.get("slug", "(untitled)")
 
             table.add_row(
                 str(post["id"]),
-                display_value,
+                title_display,
                 date_str,
                 key=str(post["id"]),
             )
@@ -225,7 +211,9 @@ class ContentEditorApp(App):
             self.current_post = post
 
             # Show a quick preview while we fetch the full content asynchronously
-            preview.document.update(f"# {post['title']}\n\n*Loading full content...*")
+            title = post.get('title', '')
+            preview_text = f"# {title}\n\n*Loading full content...*" if title else "*Loading content...*"
+            preview.document.update(preview_text)
 
             # Fetch full post content asynchronously
             self.fetch_full_post(post["id"])
@@ -246,7 +234,7 @@ class ContentEditorApp(App):
             Full post dict or None if not found
         """
         try:
-            full_post = self.db.get_post(post_id)
+            full_post = self.content_manager.get_post(post_id)
             if full_post:
                 self.current_post_full = full_post
                 # Schedule UI update back on the main event loop thread
@@ -268,9 +256,24 @@ class ContentEditorApp(App):
             full_post: The full post dict with all content
         """
         preview = self.query_one("#preview-content", MarkdownViewer)
-        title = full_post.get("title", self.current_post.get("title", ""))
-        content = full_post.get("content", "No content available")
-        preview.document.update(f"# {title}\n\n{content}")
+        title = full_post.get("title", self.current_post.get("title", "")) if self.current_post else full_post.get("title", "")
+
+        # Get content with fallback to description
+        content = full_post.get("content", "").strip()
+        if not content:
+            # Fallback to description if content is empty
+            content = full_post.get("description", "")
+
+        if not content:
+            content = "(No content available)"
+
+        # Format the preview content with title if available
+        if title:
+            preview_content = f"# {title}\n\n{content}"
+        else:
+            preview_content = content if content else "(No content available)"
+
+        preview.document.update(preview_content)
 
     @property
     def cursor_row(self):
@@ -309,7 +312,7 @@ class ContentEditorApp(App):
             self.load_posts()
             self.notify("Post created successfully", severity="information")
 
-        self.push_screen(CreatePostScreen(self.db, on_created))
+        self.push_screen(CreatePostScreen(self.content_manager, on_created))
 
     def action_search(self):
         """Open search modal."""
@@ -332,17 +335,17 @@ class ContentEditorApp(App):
             """Handle collection selection."""
             if collection != self.current_collection:
                 self.current_collection = collection
-                self.db.set_collection(collection)
+                self.content_manager.set_collection(collection)
                 self._update_subtitle()
                 self.current_page = 0  # Reset pagination
                 self.current_search = None
                 self.load_posts()
                 self.notify(
-                    f"Switched to {self.db.AVAILABLE_COLLECTIONS[collection]}",
+                    f"Switched to {self.content_manager.AVAILABLE_COLLECTIONS[collection]}",
                     severity="information"
                 )
 
-        self.push_screen(CollectionSelectScreen(on_collection_selected, self.db.collections_manager))
+        self.push_screen(CollectionSelectScreen(on_collection_selected, self.content_manager.collections_manager))
 
     def action_next_page(self):
         """Load the next page of posts."""

@@ -1,49 +1,42 @@
-"""Hybrid content operations combining ContentManager reads with database writes.
+"""Render-engine ContentManager wrapper for TUI operations.
 
-This module provides a unified interface for working with render-engine:
+This module provides a unified interface for working with render-engine collections:
 - READ operations: Use ContentManager's standard `pages` property
-- WRITE operations: Use direct database access (since ContentManager API is read-only)
+- CREATE operations: Use ContentManager's create_entry() method
+- All data access is backend-agnostic (PostgreSQL, FileSystem, custom, etc.)
 """
 
-import os
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-
-import psycopg
-from psycopg import sql
 
 from .collections_config import CollectionsManager
 
 
 class ContentManagerWrapper:
-    """Wrapper for managing hybrid ContentManager/Database operations.
+    """Wrapper for render-engine ContentManager operations.
 
-    READ operations: Uses ContentManager's standard `pages` property
-    WRITE operations: Uses direct database access (since ContentManager API is read-only)
+    All operations go through render-engine's ContentManager,
+    which handles backend storage (PostgreSQL, FileSystem, custom, etc.) transparently.
     """
 
     def __init__(
         self,
         collection: str = "blog",
         project_root: Optional[Path] = None,
-        connection_string: Optional[str] = None,
     ):
         """Initialize the ContentManager wrapper.
 
-        Collections MUST be defined in [tool.render-engine] or [tool.render-engine.tui]
-        in the project's pyproject.toml.
+        Collections MUST be defined in [tool.render-engine] in the project's pyproject.toml.
 
         Args:
             collection: Collection to manage (default: "blog")
             project_root: Path to render-engine project root (defaults to current directory)
-            connection_string: PostgreSQL connection string (defaults to CONNECTION_STRING env var)
 
         Raises:
             ValueError: If collection is invalid
             RuntimeError: If render-engine config not found or ContentManager setup fails
         """
-        # Load collections from render-engine only
+        # Load collections from render-engine
         self.collections_manager = CollectionsManager(
             project_root=project_root,
         )
@@ -53,16 +46,7 @@ class ContentManagerWrapper:
             raise ValueError(f"Invalid collection '{collection}'. Available: {available}")
 
         self.current_collection = collection
-        self.content_manager = None  # Will be set if using render-engine ContentManager
-
-        # Set up database connection for write operations
-        conn_str = connection_string or os.environ.get("CONNECTION_STRING")
-        if not conn_str:
-            raise ValueError("CONNECTION_STRING environment variable not set")
-        self.connection_string = conn_str
-        self.conn = None
-        self._connect_db()
-
+        self.content_manager = None
         self._setup_content_manager()
 
     @property
@@ -74,18 +58,6 @@ class ContentManagerWrapper:
     def _get_current_config(self):
         """Get the config for the current collection."""
         return self.collections_manager.get_collection(self.current_collection)
-
-    def _connect_db(self):
-        """Establish database connection for write operations."""
-        try:
-            self.conn = psycopg.connect(self.connection_string)
-        except Exception as e:
-            raise RuntimeError(f"Failed to connect to database: {e}")
-
-    def _disconnect_db(self):
-        """Close database connection."""
-        if self.conn:
-            self.conn.close()
 
     def is_using_render_engine(self) -> bool:
         """Check if collections are loaded from render-engine.
@@ -252,7 +224,6 @@ class ContentManagerWrapper:
         }
         return post
 
-
     def create_post(
         self,
         slug: str,
@@ -261,12 +232,12 @@ class ContentManagerWrapper:
         description: str = "",
         external_link: Optional[str] = None,
         image_url: Optional[str] = None,
-        date: Optional[datetime] = None,
+        date: Optional[str] = None,
     ) -> int:
         """Create a new post in current collection using ContentManager.create_entry().
 
         Builds markdown with YAML frontmatter and delegates to ContentManager,
-        which handles storage (PostgreSQL, FileSystem, etc.) transparently.
+        which handles storage transparently (PostgreSQL, FileSystem, etc.).
 
         Args:
             slug: Post slug (URL identifier)
@@ -275,7 +246,7 @@ class ContentManagerWrapper:
             description: Post description
             external_link: External URL (optional)
             image_url: Image URL (optional)
-            date: Publication date (defaults to now)
+            date: Publication date as ISO string (optional, uses current time if not provided)
 
         Returns:
             The ID of the created post
@@ -283,21 +254,23 @@ class ContentManagerWrapper:
         Raises:
             RuntimeError: If creation fails
         """
-        if date is None:
-            date = datetime.now()
-
         if not self.content_manager:
             raise RuntimeError("No ContentManager available for collection")
 
         try:
             import frontmatter
+            from datetime import datetime
 
             config = self._get_current_config()
+
+            # Use provided date or current time
+            if date is None:
+                date = datetime.now().isoformat()
 
             # Build YAML frontmatter dictionary
             frontmatter_data = {
                 "slug": slug,
-                "date": date.isoformat() if isinstance(date, datetime) else date,
+                "date": date,
             }
 
             # Add optional fields based on collection schema
@@ -314,17 +287,14 @@ class ContentManagerWrapper:
             post = frontmatter.Post(content, **frontmatter_data)
             markdown_with_frontmatter = frontmatter.dumps(post)
 
-            # Delegate to ContentManager - works with any backend (PostgreSQL, FileSystem, etc.)
+            # Delegate to ContentManager - works with any backend
             result = self.content_manager.create_entry(
                 content=markdown_with_frontmatter,
-                connection=self.conn,  # For database backends
                 table=config.table_name,
                 collection_name=self.current_collection,
             )
 
             # Extract post ID from result
-            # For PostgreSQL: result is the SQL query string, need to parse or query back
-            # For FileSystem: result is the file path or success message
             post_id = self._get_post_id_after_create(slug)
             return post_id
 
@@ -343,9 +313,6 @@ class ContentManagerWrapper:
         Raises:
             RuntimeError: If post not found
         """
-        # Query the newly created post to get its ID
-        # For PostgreSQL: query the database
-        # For FileSystem: read from metadata file
         try:
             posts = self.get_posts(search=slug, limit=1)
             if posts:

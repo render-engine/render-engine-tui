@@ -19,7 +19,7 @@ from textual.widgets import (
 from textual.binding import Binding
 from textual.screen import Screen, ModalScreen
 
-from .db import DatabaseManager
+from .db import ContentManagerWrapper
 
 
 class SearchModal(ModalScreen):
@@ -83,10 +83,10 @@ class CreatePostScreen(Screen):
         Binding("escape", "quit_screen", "Cancel", show=True),
     ]
 
-    def __init__(self, db: DatabaseManager, on_created):
+    def __init__(self, content_manager: ContentManagerWrapper, on_created):
         """Initialize the create post screen."""
         super().__init__()
-        self.db = db
+        self.content_manager = content_manager
         self.on_created = on_created
 
     def compose(self) -> ComposeResult:
@@ -124,7 +124,7 @@ class CreatePostScreen(Screen):
 
     def _collection_has_field(self, field_name: str) -> bool:
         """Check if the current collection has a specific field."""
-        config = self.db._get_current_config()
+        config = self.content_manager._get_current_config()
         return config.has_field(field_name)
 
     def on_mount(self):
@@ -152,28 +152,6 @@ class CreatePostScreen(Screen):
             slug = datetime.now().strftime("%Y%m%d-%H%M%S")
             slug_input = self.query_one("#slug-input", Input)
             slug_input.value = slug
-
-    def on_input_focus(self, event: Input.Focused) -> None:
-        """Handle input focus and alert for disabled fields."""
-        input_widget = event.control
-
-        if not self._collection_has_field("title"):
-            if input_widget.id == "title-input":
-                self.app.notify(
-                    f"Title field is not available in {self.db.current_collection} collection",
-                    severity="warning"
-                )
-                # Focus content field instead
-                self.query_one("#content-input", TextArea).focus()
-
-        if not self._collection_has_field("description"):
-            if input_widget.id == "description-input":
-                self.app.notify(
-                    f"Description field is not available in {self.db.current_collection} collection",
-                    severity="warning"
-                )
-                # Focus content field instead
-                self.query_one("#content-input", TextArea).focus()
 
     def action_save(self):
         """Save the new post."""
@@ -206,7 +184,7 @@ class CreatePostScreen(Screen):
                     )
                     return
 
-            post_id = self.db.create_post(
+            post_id = self.content_manager.create_post(
                 slug=slug,
                 title=title,
                 content=content,

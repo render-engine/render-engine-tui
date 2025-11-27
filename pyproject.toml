@@ -8,13 +8,10 @@ write_to = "render_engine_tui/_version.py"
 [project]
 name = "render-engine-tui"
 dynamic = ["version"]
-description = "TUI for editing blog content stored in PostgreSQL"
+description = "TUI for browsing and creating blog content via render-engine ContentManager backends"
 requires-python = ">=3.11"
 dependencies = [
   "textual>=1.0.0",
-  "psycopg[binary]>=3.0.0",
-  "pyyaml>=6.0",
-  "python-dotenv>=1.0.0",
   "python-frontmatter>=1.0.0",
 ]
 
