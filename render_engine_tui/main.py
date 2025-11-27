@@ -258,12 +258,23 @@ class ContentEditorApp(App):
         preview = self.query_one("#preview-content", MarkdownViewer)
         title = full_post.get("title", self.current_post.get("title", "")) if self.current_post else full_post.get("title", "")
 
-        # Get content with fallback to description
-        content = full_post.get("content", "").strip()
-        if not content:
-            # Fallback to description if content is empty
-            content = full_post.get("description", "")
+        # Get content with multiple fallbacks
+        content = None
 
+        # Try primary sources first
+        for field in ["content", "body", "raw", "markdown", "text"]:
+            candidate = full_post.get(field)
+            if candidate and isinstance(candidate, str) and candidate.strip():
+                content = candidate.strip()
+                break
+
+        # Fallback to description if no content found
+        if not content:
+            candidate = full_post.get("description")
+            if candidate and isinstance(candidate, str) and candidate.strip():
+                content = f"*{candidate.strip()}*"  # italicize description to distinguish it
+
+        # Last resort fallback
         if not content:
             content = "(No content available)"
 

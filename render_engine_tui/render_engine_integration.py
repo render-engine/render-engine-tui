@@ -309,21 +309,37 @@ class ContentManagerAdapter:
         Args:
             page: A Page object from ContentManager
         """
+        logger.debug(f"\n{'='*80}")
         logger.debug(f"Page object type: {type(page)}")
         logger.debug(f"Page object class: {page.__class__.__name__}")
+        logger.debug(f"Page module: {page.__class__.__module__}")
 
         # Log all attributes
         if hasattr(page, '__dict__'):
-            logger.debug(f"Page attributes: {list(page.__dict__.keys())}")
+            logger.debug(f"\nPage __dict__ attributes ({len(page.__dict__)} total):")
             for key, value in page.__dict__.items():
                 if isinstance(value, str):
-                    logger.debug(f"  {key}: {value[:100]}..." if len(str(value)) > 100 else f"  {key}: {value}")
+                    val_preview = value[:100] + "..." if len(value) > 100 else value
+                    logger.debug(f"  {key}: [{type(value).__name__}] {repr(val_preview)}")
+                elif isinstance(value, (int, float, bool, type(None))):
+                    logger.debug(f"  {key}: [{type(value).__name__}] {repr(value)}")
                 else:
-                    logger.debug(f"  {key}: {type(value).__name__}")
+                    logger.debug(f"  {key}: [{type(value).__name__}]")
 
-        # Log properties and methods
-        public_attrs = [attr for attr in dir(page) if not attr.startswith('_')]
-        logger.debug(f"Public attributes/methods: {public_attrs[:10]}...")
+        # Check specific attributes we're looking for
+        logger.debug(f"\nSpecific attribute checks:")
+        for attr in ['id', 'slug', 'title', 'description', 'content', 'body', 'date', 'raw', 'markdown']:
+            if hasattr(page, attr):
+                val = getattr(page, attr)
+                if isinstance(val, str):
+                    preview = val[:50] + "..." if len(val) > 50 else val
+                    logger.debug(f"  {attr}: EXISTS - {repr(preview)}")
+                else:
+                    logger.debug(f"  {attr}: EXISTS - type={type(val).__name__}, value={repr(val)}")
+            else:
+                logger.debug(f"  {attr}: NOT FOUND")
+
+        logger.debug(f"{'='*80}\n")
 
     def _page_to_dict(self, page: Any) -> Dict[str, Any]:
         """Convert a render-engine Page object to a dictionary.
