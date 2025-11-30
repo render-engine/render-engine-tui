@@ -1,6 +1,6 @@
 """Main TUI application."""
 
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, List
 from textual.app import ComposeResult, App
 from textual.containers import Vertical, Horizontal
 from textual.widgets import (
@@ -10,6 +10,8 @@ from textual.widgets import (
     TextArea,
 )
 from textual.binding import Binding
+
+from render_engine import Page
 
 from .render_engine_integration import ContentManager
 from .site_loader import SiteLoader
@@ -59,8 +61,8 @@ class ContentEditorApp(App):
         """Initialize the app."""
         super().__init__()
         self.content_manager = ContentManager()
-        self.current_post = None
-        self.posts = []
+        self.current_post: Optional[Page] = None
+        self.posts: List[Page] = []
         self.current_collection = "blog"  # Default collection
 
         # Pagination state
@@ -131,36 +133,29 @@ class ContentEditorApp(App):
         try:
             # Find the post in our current list
             for i, post in enumerate(self.posts):
-                if post["id"] == post_id:
+                if getattr(post, 'id', None) == post_id:
                     # Fetch updated post data
                     updated_post = self.content_manager.get_post(post_id)
                     if updated_post:
-                        # Update the post dict in our list
-                        self.posts[i] = {
-                            "id": updated_post["id"],
-                            "slug": updated_post["slug"],
-                            "title": updated_post.get("title", ""),
-                            "description": updated_post.get("description", ""),
-                            "date": updated_post["date"],
-                            "content": updated_post.get("content", ""),
-                        }
+                        # Replace the post object in our list
+                        self.posts[i] = updated_post
+
                         # Re-render just this row in the table
                         table = self.query_one("#posts-table", DataTable)
+
+                        # Format date
+                        date_obj = getattr(updated_post, 'date', None)
                         date_str = (
-                            self.posts[i]["date"].strftime("%Y-%m-%d")
-                            if self.posts[i]["date"]
-                            else "N/A"
+                            date_obj.strftime("%Y-%m-%d") if date_obj else "N/A"
                         )
 
                         # Update row data (title with fallback to slug)
-                        title_display = self.posts[i]["title"] or self.posts[i].get(
-                            "slug", "(untitled)"
-                        )
-                        table.update_cell(str(post_id), "Title", title_display)
+                        title = getattr(updated_post, 'title', None) or getattr(updated_post, 'slug', '(untitled)')
+                        table.update_cell(str(post_id), "Title", title)
                         table.update_cell(str(post_id), "Date", date_str)
 
                         # Update the preview if it's the currently selected post
-                        if self.current_post and self.current_post["id"] == post_id:
+                        if self.current_post and getattr(self.current_post, 'id', None) == post_id:
                             self.update_preview()
                     break
         except Exception as e:
@@ -186,21 +181,28 @@ class ContentEditorApp(App):
 
         # Sort posts by date (newest first), handling None dates
         sorted_posts = sorted(
-            self.posts, key=lambda p: p["date"] if p["date"] else None, reverse=True
+            self.posts,
+            key=lambda p: getattr(p, 'date', None) or None,
+            reverse=True
         )
 
         # Add rows with title (fallback to slug if no title)
         for post in sorted_posts:
-            date_str = post["date"].strftime("%Y-%m-%d") if post["date"] else "N/A"
+            post_id = getattr(post, 'id', None)
+            post_date = getattr(post, 'date', None)
+            post_title = getattr(post, 'title', None)
+            post_slug = getattr(post, 'slug', '(untitled)')
+
+            date_str = post_date.strftime("%Y-%m-%d") if post_date else "N/A"
 
             # Show title, or fallback to slug if no title available
-            title_display = post.get("title") or post.get("slug", "(untitled)")
+            title_display = post_title or post_slug
 
             table.add_row(
-                str(post["id"]),
+                str(post_id),
                 title_display,
                 date_str,
-                key=str(post["id"]),
+                key=str(post_id),
             )
 
         # Update preview to show the first post
@@ -221,15 +223,16 @@ class ContentEditorApp(App):
 
             try:
                 # Get full post content
-                full_post = self.content_manager.get_post(post["id"])
+                post_id = getattr(post, 'id', None)
+                full_post = self.content_manager.get_post(post_id)
                 if not full_post:
                     preview.text = "Post not found"
                     return
 
-                # Show raw content only
-                content = full_post.get("content", "")
+                # Show raw content (access content attribute directly)
+                content = getattr(full_post, 'content', None)
                 if content:
-                    preview.text = content
+                    preview.text = str(content)
                 else:
                     preview.text = "(No content available)"
             except Exception as e:
@@ -344,7 +347,8 @@ class ContentEditorApp(App):
         from .ui import MetadataModal
 
         try:
-            full_post = self.content_manager.get_post(self.current_post["id"])
+            post_id = getattr(self.current_post, 'id', None)
+            full_post = self.content_manager.get_post(post_id)
             if full_post:
                 self.push_screen(MetadataModal(full_post))
             else:

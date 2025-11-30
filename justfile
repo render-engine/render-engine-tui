@@ -24,7 +24,15 @@ clean:
 
 # Install development dependencies
 dev:
-    uv sync
+    uv sync --all-extras
+
+# Run tests
+test:
+    uv run pytest
+
+# Run tests with coverage
+test-cov:
+    uv run pytest --cov=render_engine_tui
 
 # Run the application
 run:

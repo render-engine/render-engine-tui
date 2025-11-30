@@ -15,7 +15,7 @@ import tomllib
 import logging
 
 from .collections_config import CollectionConfig, Field
-from render_engine import Site, Collection
+from render_engine import Site, Collection, Page
 
 logger = logging.getLogger(__name__)
 
@@ -492,7 +492,7 @@ class ContentManager:
         self.current_collection = collection
         self._setup_content_manager()
 
-    def get_posts(self, search: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+    def get_posts(self, search: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[Page]:
         """Get posts from current collection with search and pagination.
 
         Args:
@@ -501,7 +501,7 @@ class ContentManager:
             offset: Number of posts to skip for pagination (default: 0)
 
         Returns:
-            List of post dictionaries with id, slug, title, description, date
+            List of Page objects
 
         Raises:
             RuntimeError: If ContentManager operation fails
@@ -515,65 +515,19 @@ class ContentManager:
             else:
                 items = self._get_all(limit=limit, offset=offset)
 
-            if items:
-                # Normalize ContentManager output to TUI format
-                return self._normalize_posts(items)
-            return []
+            return items if items else []
         except Exception as e:
             raise RuntimeError(f"Failed to fetch posts: {e}")
 
-    def _normalize_post(self, item: Dict[str, Any], full: bool = False) -> Dict[str, Any]:
-        """Normalize a ContentManager item to TUI format.
 
-        Args:
-            item: Item from ContentManager
-            full: If True, include all fields (content, external_link, image_url).
-                  If False, include only basic fields and content preview.
-
-        Returns:
-            Post dictionary with normalized fields
-        """
-        post = {
-            "id": item.get("id"),
-            "slug": item.get("slug", ""),
-            "title": item.get("title", ""),
-            "description": item.get("description", ""),
-            "date": item.get("date"),
-        }
-
-        if full:
-            # For full posts: include all available fields
-            post.update({
-                "content": item.get("content", ""),
-                "external_link": item.get("external_link"),
-                "image_url": item.get("image_url"),
-            })
-        else:
-            # For list views: use content preview if title is missing
-            if not post["title"] and "content" in item:
-                post["description"] = str(item.get("content", ""))[:100]
-
-        return post
-
-    def _normalize_posts(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Normalize list of ContentManager items to TUI format.
-
-        Args:
-            items: List of items from ContentManager
-
-        Returns:
-            List of normalized posts with basic fields
-        """
-        return [self._normalize_post(item, full=False) for item in items]
-
-    def get_post(self, post_id: int) -> Optional[Dict[str, Any]]:
+    def get_post(self, post_id: int) -> Optional[Page]:
         """Get a single post with all details from current collection.
 
         Args:
             post_id: The post ID
 
         Returns:
-            Post dictionary with all fields, or None if not found
+            Page object, or None if not found
 
         Raises:
             RuntimeError: If ContentManager operation fails
@@ -583,10 +537,7 @@ class ContentManager:
 
         try:
             post = self._get(post_id)
-            if post:
-                # Normalize output with full fields
-                return self._normalize_post(post, full=True)
-            return None
+            return post
         except Exception as e:
             raise RuntimeError(f"Failed to fetch post {post_id}: {e}")
 
@@ -704,7 +655,7 @@ class ContentManager:
                 f"{manager.__class__.__name__} does not have a pages property"
             )
 
-    def _get_all(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+    def _get_all(self, limit: int = 50, offset: int = 0) -> List[Page]:
         """Get all items with pagination using the standard pages property.
 
         Args:
@@ -712,25 +663,25 @@ class ContentManager:
             offset: Number of items to skip
 
         Returns:
-            List of item dictionaries
+            List of Page objects
         """
         manager = self._get_instance()
         self._validate_has_pages(manager)
 
         try:
-            # Get all pages and convert to dicts
+            # Get all pages directly, no conversion
             all_pages = list(manager.pages)
-            pages_as_dicts = [self._page_to_dict(page) for page in all_pages]
-            return pages_as_dicts[offset : offset + limit]
+            return all_pages[offset : offset + limit]
         except Exception as e:
             raise RuntimeError(f"Failed to fetch pages: {e}")
 
     def _search(
         self, search_term: str, limit: int = 50, offset: int = 0
-    ) -> List[Dict[str, Any]]:
+    ) -> List[Page]:
         """Search items using the standard pages property.
 
-        Performs in-memory search on all pages using searchable fields.
+        Performs in-memory search on all pages.
+        Searches title, slug, and content attributes.
 
         Args:
             search_term: Search term to filter by
@@ -738,40 +689,39 @@ class ContentManager:
             offset: Number of items to skip
 
         Returns:
-            List of matching item dictionaries
+            List of matching Page objects
         """
         manager = self._get_instance()
-        config = self._get_current_config()
         self._validate_has_pages(manager)
 
         try:
             all_pages = list(manager.pages)
-            pages_as_dicts = [self._page_to_dict(page) for page in all_pages]
-
-            # Filter by searchable fields
-            filtered = []
             search_lower = search_term.lower()
 
-            for item in pages_as_dicts:
-                for field in config.fields:
-                    if field.searchable and field.name in item:
-                        value = str(item[field.name]).lower()
+            # Filter by common searchable fields
+            filtered = []
+            for page in all_pages:
+                # Check if search term matches any common attributes
+                searchable_attrs = ['title', 'slug', 'content', 'description']
+                for attr in searchable_attrs:
+                    if hasattr(page, attr):
+                        value = str(getattr(page, attr, "")).lower()
                         if search_lower in value:
-                            filtered.append(item)
+                            filtered.append(page)
                             break
 
             return filtered[offset : offset + limit]
         except Exception as e:
             raise RuntimeError(f"Failed to search pages: {e}")
 
-    def _get(self, item_id: int) -> Optional[Dict[str, Any]]:
+    def _get(self, item_id: int) -> Optional[Page]:
         """Get a single item by ID using the standard pages property.
 
         Args:
             item_id: The item ID
 
         Returns:
-            Item dictionary or None if not found
+            Page object or None if not found
         """
         manager = self._get_instance()
         self._validate_has_pages(manager)
@@ -779,9 +729,8 @@ class ContentManager:
         try:
             # Search through pages for matching ID
             for page in manager.pages:
-                page_dict = self._page_to_dict(page)
-                if page_dict.get("id") == item_id:
-                    return page_dict
+                if getattr(page, 'id', None) == item_id:
+                    return page
             return None
         except Exception as e:
             raise RuntimeError(f"Failed to fetch page {item_id}: {e}")
@@ -816,48 +765,3 @@ class ContentManager:
         except Exception as e:
             raise RuntimeError(f"Failed to create entry via ContentManager: {e}")
 
-    def _page_to_dict(self, page: Any) -> Dict[str, Any]:
-        """Convert a render-engine Page object to a dictionary.
-
-        Args:
-            page: A Page object from ContentManager
-
-        Returns:
-            Dictionary with normalized fields (id, slug, title, description, content, date)
-        """
-        # Handle dict-like pages
-        if isinstance(page, dict):
-            page_dict = page
-        else:
-            # Convert Page object to dict by extracting attributes
-            page_dict = {}
-            for attr in ['id', 'slug', 'title', 'description', 'date', 'external_link', 'image_url', 'tags']:
-                if hasattr(page, attr):
-                    page_dict[attr] = getattr(page, attr)
-
-            # Extract RAW content (not parsed) for editing in TUI
-            # Priority: _raw_content (preserved before parsing) > content > _content
-            if hasattr(page, '_raw_content'):
-                page_dict['content'] = page._raw_content
-            elif hasattr(page, 'content'):
-                page_dict['content'] = page.content
-            elif hasattr(page, '_content'):
-                page_dict['content'] = page._content  # fallback for edge cases
-
-            # Merge metadata if available
-            if hasattr(page, 'meta') and isinstance(page.meta, dict):
-                page_dict.update(page.meta)
-            elif hasattr(page, 'metadata') and isinstance(page.metadata, dict):
-                page_dict.update(page.metadata)
-
-        # Normalize result with required fields
-        return {
-            "id": page_dict.get("id"),
-            "slug": page_dict.get("slug", ""),
-            "title": page_dict.get("title", ""),
-            "description": page_dict.get("description", ""),
-            "content": page_dict.get("content", ""),
-            "external_link": page_dict.get("external_link"),
-            "image_url": page_dict.get("image_url"),
-            "date": page_dict.get("date"),
-        }

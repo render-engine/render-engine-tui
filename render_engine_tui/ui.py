@@ -382,11 +382,11 @@ class MetadataModal(ModalScreen):
     }
     """
 
-    def __init__(self, post: dict):
+    def __init__(self, post):
         """Initialize the metadata modal.
 
         Args:
-            post: Dictionary containing post data
+            post: Page object containing post data
         """
         super().__init__()
         self.post = post
@@ -416,11 +416,11 @@ class MetadataModal(ModalScreen):
             ("Image URL", "image_url"),
         ]
 
-        for label, key in metadata_fields:
-            value = self.post.get(key)
+        for label, attr_name in metadata_fields:
+            value = getattr(self.post, attr_name, None)
             if value:
                 # Format date if it exists
-                if key == "date" and hasattr(value, "strftime"):
+                if attr_name == "date" and hasattr(value, "strftime"):
                     value = value.strftime("%Y-%m-%d %H:%M:%S")
 
                 field_text = f"{label}: {value}"

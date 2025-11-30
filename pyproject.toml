@@ -6,14 +6,18 @@ build-backend = "setuptools.build_meta"
 write_to = "render_engine_tui/_version.py"
 
 [project]
+dependencies = [
+  "textual>=1.0.0",
+  "python-frontmatter>=1.0.0",
+  "render-engine>=2025.11.1",
+]
 name = "render-engine-tui"
 dynamic = ["version"]
 description = "TUI for browsing and creating blog content via render-engine ContentManager backends"
 requires-python = ">=3.11"
-dependencies = [
-  "textual>=1.0.0",
-  "python-frontmatter>=1.0.0",
-]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0.0", "pytest-asyncio>=0.21.0", "pytest-cov>=4.0.0"]
 
 [project.scripts]
 render-engine-tui = "render_engine_tui.main:run"
