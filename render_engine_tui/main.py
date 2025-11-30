@@ -110,7 +110,9 @@ class ContentEditorApp(App):
             self.current_page = page
             self.current_search = search
             offset = page * self.page_size
-            self.posts = self.content_manager.get_posts(search=search, limit=self.page_size, offset=offset)
+            self.posts = self.content_manager.get_posts(
+                search=search, limit=self.page_size, offset=offset
+            )
             self.populate_table()
         except Exception as e:
             self.notify(f"Error loading posts: {e}", severity="error")
@@ -138,13 +140,20 @@ class ContentEditorApp(App):
                             "title": updated_post.get("title", ""),
                             "description": updated_post.get("description", ""),
                             "date": updated_post["date"],
+                            "content": updated_post.get("content", ""),
                         }
                         # Re-render just this row in the table
                         table = self.query_one("#posts-table", DataTable)
-                        date_str = self.posts[i]["date"].strftime("%Y-%m-%d") if self.posts[i]["date"] else "N/A"
+                        date_str = (
+                            self.posts[i]["date"].strftime("%Y-%m-%d")
+                            if self.posts[i]["date"]
+                            else "N/A"
+                        )
 
                         # Update row data (title with fallback to slug)
-                        title_display = self.posts[i]["title"] or self.posts[i].get("slug", "(untitled)")
+                        title_display = self.posts[i]["title"] or self.posts[i].get(
+                            "slug", "(untitled)"
+                        )
                         table.update_cell(str(post_id), "Title", title_display)
                         table.update_cell(str(post_id), "Date", date_str)
 
@@ -175,9 +184,7 @@ class ContentEditorApp(App):
 
         # Sort posts by date (newest first), handling None dates
         sorted_posts = sorted(
-            self.posts,
-            key=lambda p: p["date"] if p["date"] else None,
-            reverse=True
+            self.posts, key=lambda p: p["date"] if p["date"] else None, reverse=True
         )
 
         # Add rows with title (fallback to slug if no title)
@@ -196,7 +203,6 @@ class ContentEditorApp(App):
 
         # Update preview to show the first post
         self.update_preview()
-
 
     def update_preview(self):
         """Update the preview panel with the currently selected post."""
@@ -236,9 +242,13 @@ class ContentEditorApp(App):
                 if full_post.get("date"):
                     preview_lines.append(f"**Date:** {full_post.get('date')}")
                 if full_post.get("description"):
-                    preview_lines.append(f"**Description:** {full_post.get('description')}")
+                    preview_lines.append(
+                        f"**Description:** {full_post.get('description')}"
+                    )
                 if full_post.get("external_link"):
-                    preview_lines.append(f"**External Link:** {full_post.get('external_link')}")
+                    preview_lines.append(
+                        f"**External Link:** {full_post.get('external_link')}"
+                    )
                 if full_post.get("image_url"):
                     preview_lines.append(f"**Image URL:** {full_post.get('image_url')}")
 
@@ -268,7 +278,6 @@ class ContentEditorApp(App):
     def on_data_table_row_highlighted(self, event):
         """Update preview when row is highlighted."""
         self.update_preview()
-
 
     def action_reset(self):
         """Reset the view to default state: show all posts, go to top."""
@@ -326,10 +335,14 @@ class ContentEditorApp(App):
                 self.load_posts()
                 self.notify(
                     f"Switched to {self.content_manager.AVAILABLE_COLLECTIONS[collection]}",
-                    severity="information"
+                    severity="information",
                 )
 
-        self.push_screen(CollectionSelectScreen(on_collection_selected, self.content_manager.collections_manager))
+        self.push_screen(
+            CollectionSelectScreen(
+                on_collection_selected, self.content_manager.collections_manager
+            )
+        )
 
     def action_next_page(self):
         """Load the next page of posts."""
