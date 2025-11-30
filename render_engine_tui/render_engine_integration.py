@@ -388,14 +388,11 @@ class RenderEngineCollectionsLoader:
 
 
 class ContentManager:
-    """Unified content management for the TUI.
+    """Thin adapter for render-engine ContentManager.
 
-    Consolidates render-engine ContentManager interaction with collection management
-    and TUI data normalization. Provides a single interface for all content operations:
-    - Collection switching and validation
-    - Content fetching (all, search, single)
-    - Content creation
-    - Data normalization to TUI format
+    Handles collection switching and provides access to the underlying
+    render-engine ContentManager. All content operations are delegated
+    to separate services (PostService, SearchService).
     """
 
     def __init__(
@@ -405,8 +402,6 @@ class ContentManager:
     ):
         """Initialize the content manager.
 
-        Collections MUST be defined in [tool.render-engine] in the project's pyproject.toml.
-
         Args:
             collection: Collection to manage (default: "blog")
             project_root: Path to render-engine project root (defaults to current directory)
@@ -415,7 +410,6 @@ class ContentManager:
             ValueError: If collection is invalid
             RuntimeError: If render-engine config not found or ContentManager setup fails
         """
-        # Load collections from render-engine
         self.loader = RenderEngineCollectionsLoader(project_root=project_root)
 
         if not self.loader.validate_collection(collection):
@@ -428,11 +422,7 @@ class ContentManager:
 
     @property
     def collections_manager(self):
-        """Get the collections manager (RenderEngineCollectionsLoader instance).
-
-        This property provides access to the underlying collections loader,
-        useful for passing to UI components that need collection information.
-        """
+        """Get the collections loader for accessing collection information."""
         return self.loader
 
     @property
@@ -440,41 +430,6 @@ class ContentManager:
         """Get available collections from config."""
         return {name: config.display_name
                 for name, config in self.loader.get_all_collections().items()}
-
-    def _get_current_config(self):
-        """Get the config for the current collection."""
-        return self.loader.get_collection(self.current_collection)
-
-    def has_content_manager(self) -> bool:
-        """Check if the current collection has a ContentManager.
-
-        Returns:
-            True if a ContentManager is available
-        """
-        return self._content_manager_instance is not None
-
-    def _setup_content_manager(self) -> None:
-        """Set up ContentManager for the current collection.
-
-        Raises:
-            RuntimeError: If ContentManager cannot be set up
-        """
-        cm_class = self.loader.get_content_manager_for_collection(
-            self.current_collection
-        )
-        if cm_class:
-            try:
-                config = self._get_current_config()
-                # Get extras from render-engine configuration
-                extras = self.loader.get_content_manager_extras(self.current_collection)
-                self._content_manager_instance = cm_class(**extras)
-            except Exception as e:
-                raise RuntimeError(f"Failed to set up ContentManager for {self.current_collection}: {e}")
-        else:
-            raise RuntimeError(
-                f"No ContentManager available for collection '{self.current_collection}'. "
-                f"Ensure the collection is properly configured in your render-engine project."
-            )
 
     def set_collection(self, collection: str) -> None:
         """Switch to a different collection at runtime.
@@ -492,52 +447,134 @@ class ContentManager:
         self.current_collection = collection
         self._setup_content_manager()
 
-    def get_posts(self, search: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[Page]:
-        """Get posts from current collection with search and pagination.
-
-        Args:
-            search: Optional search term to filter posts
-            limit: Maximum number of posts to return (default: 50)
-            offset: Number of posts to skip for pagination (default: 0)
+    def get_instance(self):
+        """Get the current render-engine ContentManager instance.
 
         Returns:
-            List of Page objects
+            The underlying render-engine ContentManager
 
         Raises:
-            RuntimeError: If ContentManager operation fails
+            RuntimeError: If ContentManager not initialized
         """
-        if not self._content_manager_instance:
-            raise RuntimeError(f"No ContentManager available for collection '{self.current_collection}'")
+        if self._content_manager_instance is None:
+            raise RuntimeError("ContentManager not initialized")
+        return self._content_manager_instance
 
+    def _get_current_config(self):
+        """Get the config for the current collection."""
+        return self.loader.get_collection(self.current_collection)
+
+    def _setup_content_manager(self) -> None:
+        """Set up ContentManager for the current collection.
+
+        Raises:
+            RuntimeError: If ContentManager cannot be set up
+        """
+        cm_class = self.loader.get_content_manager_for_collection(
+            self.current_collection
+        )
+        if cm_class:
+            try:
+                # Get extras from render-engine configuration
+                extras = self.loader.get_content_manager_extras(self.current_collection)
+                self._content_manager_instance = cm_class(**extras)
+            except Exception as e:
+                raise RuntimeError(f"Failed to set up ContentManager for {self.current_collection}: {e}")
+        else:
+            raise RuntimeError(
+                f"No ContentManager available for collection '{self.current_collection}'. "
+                f"Ensure the collection is properly configured in your render-engine project."
+            )
+
+
+class SearchService:
+    """Handles search operations on Page objects.
+
+    Performs in-memory filtering on a list of pages.
+    """
+
+    SEARCHABLE_FIELDS = ['title', 'slug', 'content', 'description']
+
+    @staticmethod
+    def search(pages: List[Page], search_term: str) -> List[Page]:
+        """Search pages by common fields.
+
+        Args:
+            pages: List of Page objects to search
+            search_term: Term to search for
+
+        Returns:
+            List of matching Page objects
+        """
+        if not search_term:
+            return pages
+
+        search_lower = search_term.lower()
+        filtered = []
+
+        for page in pages:
+            for attr in SearchService.SEARCHABLE_FIELDS:
+                if hasattr(page, attr):
+                    value = str(getattr(page, attr, "")).lower()
+                    if search_lower in value:
+                        filtered.append(page)
+                        break
+
+        return filtered
+
+
+class PostService:
+    """Handles post operations using a ContentManager.
+
+    Provides simple delegation to render-engine's ContentManager.
+    Pagination is the caller's responsibility.
+    """
+
+    def __init__(self, content_manager: ContentManager):
+        """Initialize the post service.
+
+        Args:
+            content_manager: ContentManager instance to use
+        """
+        self.content_manager = content_manager
+
+    def get_all_posts(self) -> List[Page]:
+        """Get all posts from current collection.
+
+        Returns:
+            List of all Page objects
+
+        Raises:
+            RuntimeError: If fetch fails
+        """
         try:
-            if search:
-                items = self._search(search, limit=limit, offset=offset)
-            else:
-                items = self._get_all(limit=limit, offset=offset)
-
-            return items if items else []
+            manager = self.content_manager.get_instance()
+            if not hasattr(manager, "pages"):
+                raise RuntimeError(
+                    f"{manager.__class__.__name__} does not have a pages property"
+                )
+            return list(manager.pages)
         except Exception as e:
-            raise RuntimeError(f"Failed to fetch posts: {e}")
-
+            raise RuntimeError(f"Failed to fetch pages: {e}")
 
     def get_post(self, post_id: int) -> Optional[Page]:
-        """Get a single post with all details from current collection.
+        """Get a single post by ID.
 
         Args:
             post_id: The post ID
 
         Returns:
-            Page object, or None if not found
+            Page object or None if not found
 
         Raises:
-            RuntimeError: If ContentManager operation fails
+            RuntimeError: If fetch fails
         """
-        if not self._content_manager_instance:
-            raise RuntimeError(f"No ContentManager available for collection '{self.current_collection}'")
-
         try:
-            post = self._get(post_id)
-            return post
+            posts = self.get_all_posts()
+            for page in posts:
+                if getattr(page, 'id', None) == post_id:
+                    return page
+            return None
         except Exception as e:
             raise RuntimeError(f"Failed to fetch post {post_id}: {e}")
 
@@ -551,10 +588,7 @@ class ContentManager:
         image_url: Optional[str] = None,
         date: Optional[str] = None,
     ) -> int:
-        """Create a new post in current collection using ContentManager.create_entry().
-
-        Builds markdown with YAML frontmatter and delegates to ContentManager,
-        which handles storage transparently (PostgreSQL, FileSystem, etc.).
+        """Create a new post in current collection.
 
         Args:
             slug: Post slug (URL identifier)
@@ -563,7 +597,7 @@ class ContentManager:
             description: Post description
             external_link: External URL (optional)
             image_url: Image URL (optional)
-            date: Publication date as ISO string (optional, uses current time if not provided)
+            date: Publication date as ISO string (optional)
 
         Returns:
             The ID of the created post
@@ -571,16 +605,13 @@ class ContentManager:
         Raises:
             RuntimeError: If creation fails
         """
-        if not self._content_manager_instance:
-            raise RuntimeError("No ContentManager available for collection")
-
         try:
             import frontmatter
             from datetime import datetime
 
-            config = self._get_current_config()
+            manager = self.content_manager.get_instance()
+            config = self.content_manager._get_current_config()
 
-            # Use provided date or current time
             if date is None:
                 date = datetime.now().isoformat()
 
@@ -590,7 +621,6 @@ class ContentManager:
                 "date": date,
             }
 
-            # Add optional fields based on collection schema
             if config.has_field("title") and title:
                 frontmatter_data["title"] = title
             if config.has_field("description") and description:
@@ -604,14 +634,20 @@ class ContentManager:
             post = frontmatter.Post(content, **frontmatter_data)
             markdown_with_frontmatter = frontmatter.dumps(post)
 
-            # Delegate to ContentManager - works with any backend
-            result = self._create_entry(
+            # Delegate to ContentManager
+            if not hasattr(manager, "create_entry") or not callable(getattr(manager, "create_entry")):
+                raise NotImplementedError(
+                    f"{manager.__class__.__name__} does not implement create_entry(). "
+                    f"Use a ContentManager that supports write operations."
+                )
+
+            manager.create_entry(
                 content=markdown_with_frontmatter,
                 table=config.table_name,
-                collection_name=self.current_collection,
+                collection_name=self.content_manager.current_collection,
             )
 
-            # Extract post ID from result
+            # Get the ID of the created post
             post_id = self._get_post_id_after_create(slug)
             return post_id
 
@@ -631,137 +667,11 @@ class ContentManager:
             RuntimeError: If post not found
         """
         try:
-            posts = self.get_posts(search=slug, limit=1)
-            if posts:
-                return posts[0].get("id")
+            posts = self.get_all_posts()
+            matching = SearchService.search(posts, slug)
+            if matching:
+                return matching[0].id
             raise RuntimeError(f"Post with slug '{slug}' not found after creation")
         except Exception as e:
             raise RuntimeError(f"Failed to get post ID after creation: {e}")
-
-    def _get_instance(self):
-        """Get the current ContentManager instance."""
-        if self._content_manager_instance is None:
-            raise RuntimeError("ContentManager not initialized")
-        return self._content_manager_instance
-
-    def _validate_has_pages(self, manager: Any) -> None:
-        """Validate that manager has a pages property.
-
-        Raises:
-            RuntimeError: If manager doesn't have pages property
-        """
-        if not hasattr(manager, "pages"):
-            raise RuntimeError(
-                f"{manager.__class__.__name__} does not have a pages property"
-            )
-
-    def _get_all(self, limit: int = 50, offset: int = 0) -> List[Page]:
-        """Get all items with pagination using the standard pages property.
-
-        Args:
-            limit: Maximum number of items to return
-            offset: Number of items to skip
-
-        Returns:
-            List of Page objects
-        """
-        manager = self._get_instance()
-        self._validate_has_pages(manager)
-
-        try:
-            # Get all pages directly, no conversion
-            all_pages = list(manager.pages)
-            return all_pages[offset : offset + limit]
-        except Exception as e:
-            raise RuntimeError(f"Failed to fetch pages: {e}")
-
-    def _search(
-        self, search_term: str, limit: int = 50, offset: int = 0
-    ) -> List[Page]:
-        """Search items using the standard pages property.
-
-        Performs in-memory search on all pages.
-        Searches title, slug, and content attributes.
-
-        Args:
-            search_term: Search term to filter by
-            limit: Maximum number of items to return
-            offset: Number of items to skip
-
-        Returns:
-            List of matching Page objects
-        """
-        manager = self._get_instance()
-        self._validate_has_pages(manager)
-
-        try:
-            all_pages = list(manager.pages)
-            search_lower = search_term.lower()
-
-            # Filter by common searchable fields
-            filtered = []
-            for page in all_pages:
-                # Check if search term matches any common attributes
-                searchable_attrs = ['title', 'slug', 'content', 'description']
-                for attr in searchable_attrs:
-                    if hasattr(page, attr):
-                        value = str(getattr(page, attr, "")).lower()
-                        if search_lower in value:
-                            filtered.append(page)
-                            break
-
-            return filtered[offset : offset + limit]
-        except Exception as e:
-            raise RuntimeError(f"Failed to search pages: {e}")
-
-    def _get(self, item_id: int) -> Optional[Page]:
-        """Get a single item by ID using the standard pages property.
-
-        Args:
-            item_id: The item ID
-
-        Returns:
-            Page object or None if not found
-        """
-        manager = self._get_instance()
-        self._validate_has_pages(manager)
-
-        try:
-            # Search through pages for matching ID
-            for page in manager.pages:
-                if getattr(page, 'id', None) == item_id:
-                    return page
-            return None
-        except Exception as e:
-            raise RuntimeError(f"Failed to fetch page {item_id}: {e}")
-
-    def _create_entry(self, content: str, **kwargs) -> str:
-        """Create a new entry using ContentManager's create_entry() method.
-
-        Uses the ContentManager's standard create_entry() interface, which all
-        backends implement (PostgreSQL, FileSystem, etc.).
-
-        Args:
-            content: Markdown content with YAML frontmatter
-            **kwargs: Additional arguments passed to ContentManager.create_entry()
-                     (connection, table, collection_name, etc.)
-
-        Returns:
-            Result from ContentManager.create_entry() (typically SQL query or file path)
-
-        Raises:
-            RuntimeError: If create_entry fails
-        """
-        manager = self._get_instance()
-
-        if not hasattr(manager, "create_entry") or not callable(getattr(manager, "create_entry")):
-            raise NotImplementedError(
-                f"{manager.__class__.__name__} does not implement create_entry(). "
-                f"Use a ContentManager that supports write operations."
-            )
-
-        try:
-            return manager.create_entry(content=content, **kwargs)
-        except Exception as e:
-            raise RuntimeError(f"Failed to create entry via ContentManager: {e}")
 

@@ -1,6 +1,5 @@
 """Main TUI application."""
 
-    import pdb
 from typing import Optional, Any, Dict, List
 from textual.app import ComposeResult, App
 from textual.containers import Vertical, Horizontal
@@ -14,7 +13,7 @@ from textual.binding import Binding
 
 from render_engine import Page
 
-from .render_engine_integration import ContentManager
+from .render_engine_integration import ContentManager, PostService, SearchService
 from .site_loader import SiteLoader
 from .ui import AboutScreen
 
@@ -62,6 +61,7 @@ class ContentEditorApp(App):
         """Initialize the app."""
         super().__init__()
         self.content_manager = ContentManager()
+        self.post_service = PostService(self.content_manager)
         self.current_post: Optional[Page] = None
         self.posts: List[Page] = []
         self.current_collection = "blog"  # Default collection
@@ -114,10 +114,14 @@ class ContentEditorApp(App):
         try:
             self.current_page = page
             self.current_search = search
+
+            # Get all posts, apply search filtering, then paginate
+            all_posts = self.post_service.get_all_posts()
+            filtered_posts = SearchService.search(all_posts, search) if search else all_posts
+
+            # Apply pagination
             offset = page * self.page_size
-            self.posts = self.content_manager.get_posts(
-                search=search, limit=self.page_size, offset=offset
-            )
+            self.posts = filtered_posts[offset : offset + self.page_size]
             self.populate_table()
         except Exception as e:
             self.notify(f"Error loading posts: {e}", severity="error")
@@ -136,7 +140,7 @@ class ContentEditorApp(App):
             for i, post in enumerate(self.posts):
                 if getattr(post, "id", None) == post_id:
                     # Fetch updated post data
-                    updated_post = self.content_manager.get_post(post_id)
+                    updated_post = self.post_service.get_post(post_id)
                     if updated_post:
                         # Replace the post object in our list
                         self.posts[i] = updated_post
@@ -212,7 +216,6 @@ class ContentEditorApp(App):
 
     def update_preview(self):
         """Update the preview panel with the currently selected post."""
-        pdb.set_trace()
         table = self.query_one("#posts-table", DataTable)
         preview = self.query_one("#preview-content", TextArea)
 
@@ -227,7 +230,7 @@ class ContentEditorApp(App):
             try:
                 # Get full post content
                 post_id = getattr(post, "id", None)
-                full_post = self.content_manager.get_post(post_id)
+                full_post = self.post_service.get_post(post_id)
                 if not full_post:
                     preview.text = "Post not found"
                     return
@@ -280,7 +283,7 @@ class ContentEditorApp(App):
             self.load_posts()
             self.notify("Post created successfully", severity="information")
 
-        self.push_screen(CreatePostScreen(self.content_manager, on_created))
+        self.push_screen(CreatePostScreen(self.content_manager, on_created, self.post_service))
 
     def action_search(self):
         """Open search modal."""
@@ -352,7 +355,7 @@ class ContentEditorApp(App):
 
         try:
             post_id = getattr(self.current_post, "id", None)
-            full_post = self.content_manager.get_post(post_id)
+            full_post = self.post_service.get_post(post_id)
             if full_post:
                 self.push_screen(MetadataModal(full_post))
             else:

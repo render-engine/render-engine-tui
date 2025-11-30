@@ -19,7 +19,7 @@ from textual.widgets import (
 from textual.binding import Binding
 from textual.screen import Screen, ModalScreen
 
-from .render_engine_integration import ContentManager, RenderEngineCollectionsLoader
+from .render_engine_integration import ContentManager, PostService, RenderEngineCollectionsLoader
 from .site_loader import SiteLoader
 
 
@@ -84,10 +84,11 @@ class CreatePostScreen(Screen):
         Binding("escape", "quit_screen", "Cancel", show=True),
     ]
 
-    def __init__(self, content_manager: ContentManager, on_created):
+    def __init__(self, content_manager: ContentManager, on_created, post_service: PostService = None):
         """Initialize the create post screen."""
         super().__init__()
         self.content_manager = content_manager
+        self.post_service = post_service or PostService(content_manager)
         self.on_created = on_created
 
     def compose(self) -> ComposeResult:
@@ -185,7 +186,7 @@ class CreatePostScreen(Screen):
                     )
                     return
 
-            post_id = self.content_manager.create_post(
+            post_id = self.post_service.create_post(
                 slug=slug,
                 title=title,
                 content=content,
