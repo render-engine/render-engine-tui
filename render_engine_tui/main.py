@@ -359,7 +359,7 @@ class ContentEditorApp(App):
             post_id = getattr(self.current_post, "id", None)
             full_post = self.content_manager.get_post(post_id)
             if full_post:
-                self.push_screen(MetadataModal(full_post))
+                self.push_screen(MetadataModal(full_post, self.content_manager))
             else:
                 self.notify("Could not load post metadata", severity="error")
         except Exception as e:

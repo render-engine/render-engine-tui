@@ -124,8 +124,8 @@ class CreatePostScreen(Screen):
 
     def _collection_has_field(self, field_name: str) -> bool:
         """Check if the current collection has a specific field."""
-        config = self.content_manager._get_current_config()
-        return config.has_field(field_name)
+        collection = self.content_manager.get_current_collection()
+        return self.content_manager._collection_has_field(collection, field_name)
 
     def on_mount(self):
         """Mount the screen."""
@@ -261,8 +261,9 @@ class CollectionSelectScreen(ModalScreen):
         list_view = self.query_one("#collection-list", ListView)
 
         # Add available collections from loader
-        for collection_name, collection_config in self.loader.get_all_collections().items():
-            label = Label(collection_config.display_name, id=f"collection-{collection_name}")
+        for collection_name in self.loader.get_available_collection_names():
+            display_name = self.loader.get_collection_display_name(collection_name)
+            label = Label(display_name, id=f"collection-{collection_name}")
             list_item = ListItem(label, id=collection_name)
             list_view.append(list_item)
 
@@ -381,14 +382,16 @@ class MetadataModal(ModalScreen):
     }
     """
 
-    def __init__(self, post):
+    def __init__(self, post, content_manager=None):
         """Initialize the metadata modal.
 
         Args:
             post: Page object containing post data
+            content_manager: ContentManager instance for accessing collection info (optional)
         """
         super().__init__()
         self.post = post
+        self.content_manager = content_manager
 
     def compose(self) -> ComposeResult:
         """Compose the metadata modal."""
@@ -400,30 +403,53 @@ class MetadataModal(ModalScreen):
         )
 
     def on_mount(self):
-        """Mount the modal and populate metadata."""
+        """Mount the modal and populate metadata from post attributes."""
         self.title = "Post Metadata"
         content = self.query_one("#metadata-content", Vertical)
 
-        # Add metadata fields in order
-        metadata_fields = [
-            ("ID", "id"),
-            ("Slug", "slug"),
-            ("Title", "title"),
-            ("Date", "date"),
-            ("Description", "description"),
-            ("External Link", "external_link"),
-            ("Image URL", "image_url"),
-        ]
+        # Display all non-callable attributes from the post as metadata
+        # Common attributes to prioritize
+        priority_attrs = ["id", "slug", "title", "date", "description"]
+        shown_attrs = set()
 
-        for label, attr_name in metadata_fields:
-            value = getattr(self.post, attr_name, None)
-            if value:
-                # Format date if it exists
-                if attr_name == "date" and hasattr(value, "strftime"):
-                    value = value.strftime("%Y-%m-%d %H:%M:%S")
+        # First, show priority attributes
+        for attr_name in priority_attrs:
+            if self._display_field(content, attr_name, shown_attrs):
+                pass
 
-                field_text = f"{label}: {value}"
-                content.append(Static(field_text, classes="metadata-field"))
+        # Then, show any other attributes (except private/special ones)
+        for attr_name in dir(self.post):
+            if (
+                not attr_name.startswith("_")  # Skip private attributes
+                and attr_name not in shown_attrs  # Skip already shown
+                and not callable(getattr(self.post, attr_name, None))  # Skip methods
+            ):
+                self._display_field(content, attr_name, shown_attrs)
+
+    def _display_field(self, container: Vertical, attr_name: str, shown_attrs: set) -> bool:
+        """Display a field in the metadata modal if it has a value.
+
+        Args:
+            container: The Vertical container to append to
+            attr_name: The attribute name
+            shown_attrs: Set of already-shown attributes (modified in place)
+
+        Returns:
+            True if field was displayed, False otherwise
+        """
+        value = getattr(self.post, attr_name, None)
+        if value is not None and value != "":
+            # Format date if it exists
+            if attr_name == "date" and hasattr(value, "strftime"):
+                value = value.strftime("%Y-%m-%d %H:%M:%S")
+
+            # Convert attribute name to title case for display
+            display_label = attr_name.replace("_", " ").title()
+            field_text = f"{display_label}: {value}"
+            container.append(Static(field_text, classes="metadata-field"))
+            shown_attrs.add(attr_name)
+            return True
+        return False
 
     def action_close(self):
         """Close the metadata modal."""
