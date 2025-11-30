@@ -336,3 +336,95 @@ class AboutScreen(ModalScreen):
     def action_close(self):
         """Close the about screen."""
         self.app.pop_screen()
+
+
+class MetadataModal(ModalScreen):
+    """Modal screen displaying post metadata."""
+
+    BINDINGS = [
+        Binding("escape", "close", "Close", show=False),
+    ]
+
+    CSS = """
+    MetadataModal {
+        align: center middle;
+    }
+
+    MetadataModal > ScrollableContainer {
+        width: 80;
+        height: auto;
+        max-height: 20;
+        border: solid $accent;
+        background: $panel;
+    }
+
+    #metadata-content {
+        width: 100%;
+        height: auto;
+        padding: 1 2;
+    }
+
+    .metadata-title {
+        width: 100%;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    .metadata-field {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    .metadata-label {
+        text-style: bold;
+        color: $accent;
+    }
+    """
+
+    def __init__(self, post: dict):
+        """Initialize the metadata modal.
+
+        Args:
+            post: Dictionary containing post data
+        """
+        super().__init__()
+        self.post = post
+
+    def compose(self) -> ComposeResult:
+        """Compose the metadata modal."""
+        yield ScrollableContainer(
+            Vertical(
+                Static("Post Metadata", classes="metadata-title"),
+                id="metadata-content",
+            )
+        )
+
+    def on_mount(self):
+        """Mount the modal and populate metadata."""
+        self.title = "Post Metadata"
+        content = self.query_one("#metadata-content", Vertical)
+
+        # Add metadata fields in order
+        metadata_fields = [
+            ("ID", "id"),
+            ("Slug", "slug"),
+            ("Title", "title"),
+            ("Date", "date"),
+            ("Description", "description"),
+            ("External Link", "external_link"),
+            ("Image URL", "image_url"),
+        ]
+
+        for label, key in metadata_fields:
+            value = self.post.get(key)
+            if value:
+                # Format date if it exists
+                if key == "date" and hasattr(value, "strftime"):
+                    value = value.strftime("%Y-%m-%d %H:%M:%S")
+
+                field_text = f"{label}: {value}"
+                content.append(Static(field_text, classes="metadata-field"))
+
+    def action_close(self):
+        """Close the metadata modal."""
+        self.app.pop_screen()

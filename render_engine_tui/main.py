@@ -2,7 +2,7 @@
 
 from typing import Optional, Any, Dict
 from textual.app import ComposeResult, App
-from textual.containers import Vertical
+from textual.containers import Vertical, Horizontal, ScrollableContainer
 from textual.widgets import (
     Header,
     Footer,
@@ -22,6 +22,7 @@ class ContentEditorApp(App):
         Binding("n", "new_post", "New", show=True),
         Binding("/", "search", "Search", show=True),
         Binding("c", "change_collection", "Collection", show=True),
+        Binding("m", "show_metadata", "Metadata", show=True),
         Binding("r", "reset", "Reset", show=True),
         Binding("pagedown", "next_page", "Next", show=True),
         Binding("pageup", "prev_page", "Prev", show=True),
@@ -37,19 +38,24 @@ class ContentEditorApp(App):
     #main-container {
         width: 100%;
         height: 1fr;
-        layout: vertical;
-    }
-
-    #preview-content {
-        width: 100%;
-        height: 40%;
-        border: solid $accent;
+        layout: horizontal;
     }
 
     #posts-table {
-        width: 100%;
-        height: 60%;
+        width: 30%;
+        height: 100%;
         border: solid $accent;
+    }
+
+    #preview-content {
+        width: 70%;
+        height: 100%;
+        border: solid $accent;
+    }
+
+    #content-scroll {
+        width: 100%;
+        height: 100%;
     }
     """
 
@@ -69,12 +75,13 @@ class ContentEditorApp(App):
     def compose(self) -> ComposeResult:
         """Compose the app."""
         yield Header()
-        with Vertical(id="main-container"):
-            yield Static(
-                "Select a post to preview",
-                id="preview-content",
-            )
+        with Horizontal(id="main-container"):
             yield DataTable(id="posts-table")
+            with ScrollableContainer(id="content-scroll"):
+                yield Static(
+                    "Select a post to preview",
+                    id="preview-content",
+                )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -223,32 +230,13 @@ class ContentEditorApp(App):
                     preview.update("Post not found")
                     return
 
-                # Build preview with all post variables (plain text)
+                # Build preview with content only (metadata in popup)
                 preview_lines = []
 
                 # Title
                 title = full_post.get("title", "")
                 if title:
-                    preview_lines.append(f"Title: {title}")
-                    preview_lines.append("")
-
-                # Post metadata
-                preview_lines.append("=== METADATA ===")
-                if full_post.get("id"):
-                    preview_lines.append(f"ID: {full_post.get('id')}")
-                if full_post.get("slug"):
-                    preview_lines.append(f"Slug: {full_post.get('slug')}")
-                if full_post.get("date"):
-                    preview_lines.append(f"Date: {full_post.get('date')}")
-                if full_post.get("description"):
-                    preview_lines.append(f"Description: {full_post.get('description')}")
-                if full_post.get("external_link"):
-                    preview_lines.append(f"External Link: {full_post.get('external_link')}")
-                if full_post.get("image_url"):
-                    preview_lines.append(f"Image URL: {full_post.get('image_url')}")
-
-                preview_lines.append("")
-                preview_lines.append("=== CONTENT ===")
+                    preview_lines.append(f"# {title}\n")
 
                 # Content (plain text)
                 content = full_post.get("content", "")
@@ -361,6 +349,23 @@ class ContentEditorApp(App):
     def action_about(self):
         """Open the about screen."""
         self.push_screen(AboutScreen())
+
+    def action_show_metadata(self):
+        """Show metadata in a modal popup."""
+        if not self.current_post:
+            self.notify("No post selected", severity="warning")
+            return
+
+        from .ui import MetadataModal
+
+        try:
+            full_post = self.content_manager.get_post(self.current_post["id"])
+            if full_post:
+                self.push_screen(MetadataModal(full_post))
+            else:
+                self.notify("Could not load post metadata", severity="error")
+        except Exception as e:
+            self.notify(f"Error loading metadata: {e}", severity="error")
 
 
 def run():
