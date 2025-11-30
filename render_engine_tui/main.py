@@ -7,7 +7,7 @@ from textual.widgets import (
     Header,
     Footer,
     DataTable,
-    MarkdownViewer,
+    Static,
 )
 from textual.binding import Binding
 
@@ -70,10 +70,9 @@ class ContentEditorApp(App):
         """Compose the app."""
         yield Header()
         with Vertical(id="main-container"):
-            yield MarkdownViewer(
+            yield Static(
                 "Select a post to preview",
                 id="preview-content",
-                show_table_of_contents=False,
             )
             yield DataTable(id="posts-table")
         yield Footer()
@@ -207,7 +206,7 @@ class ContentEditorApp(App):
     def update_preview(self):
         """Update the preview panel with the currently selected post."""
         table = self.query_one("#posts-table", DataTable)
-        preview = self.query_one("#preview-content", MarkdownViewer)
+        preview = self.query_one("#preview-content", Static)
 
         if (
             self.posts
@@ -221,53 +220,49 @@ class ContentEditorApp(App):
                 # Get full post content
                 full_post = self.content_manager.get_post(post["id"])
                 if not full_post:
-                    preview.document.update("Post not found")
+                    preview.update("Post not found")
                     return
 
-                # Build preview with all post variables
+                # Build preview with all post variables (plain text)
                 preview_lines = []
 
                 # Title
                 title = full_post.get("title", "")
                 if title:
-                    preview_lines.append(f"# {title}")
+                    preview_lines.append(f"Title: {title}")
                     preview_lines.append("")
 
                 # Post metadata
-                preview_lines.append("## Metadata")
+                preview_lines.append("=== METADATA ===")
                 if full_post.get("id"):
-                    preview_lines.append(f"**ID:** {full_post.get('id')}")
+                    preview_lines.append(f"ID: {full_post.get('id')}")
                 if full_post.get("slug"):
-                    preview_lines.append(f"**Slug:** {full_post.get('slug')}")
+                    preview_lines.append(f"Slug: {full_post.get('slug')}")
                 if full_post.get("date"):
-                    preview_lines.append(f"**Date:** {full_post.get('date')}")
+                    preview_lines.append(f"Date: {full_post.get('date')}")
                 if full_post.get("description"):
-                    preview_lines.append(
-                        f"**Description:** {full_post.get('description')}"
-                    )
+                    preview_lines.append(f"Description: {full_post.get('description')}")
                 if full_post.get("external_link"):
-                    preview_lines.append(
-                        f"**External Link:** {full_post.get('external_link')}"
-                    )
+                    preview_lines.append(f"External Link: {full_post.get('external_link')}")
                 if full_post.get("image_url"):
-                    preview_lines.append(f"**Image URL:** {full_post.get('image_url')}")
+                    preview_lines.append(f"Image URL: {full_post.get('image_url')}")
 
                 preview_lines.append("")
+                preview_lines.append("=== CONTENT ===")
 
-                # Content
+                # Content (plain text)
                 content = full_post.get("content", "")
                 if content:
-                    preview_lines.append("## Content")
                     preview_lines.append(content)
                 else:
-                    preview_lines.append("*(No content available)*")
+                    preview_lines.append("(No content available)")
 
                 preview_content = "\n".join(preview_lines)
-                preview.document.update(preview_content)
+                preview.update(preview_content)
             except Exception as e:
                 self.notify(f"Error loading post content: {e}", severity="error")
         else:
-            preview.document.update("Select a post to preview")
+            preview.update("Select a post to preview")
 
     @property
     def cursor_row(self):
