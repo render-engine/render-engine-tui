@@ -20,6 +20,7 @@ from textual.binding import Binding
 from textual.screen import Screen, ModalScreen
 
 from .render_engine_integration import ContentManager, RenderEngineCollectionsLoader
+from .site_loader import SiteLoader
 
 
 class SearchModal(ModalScreen):

@@ -427,6 +427,15 @@ class ContentManager:
         self._setup_content_manager()
 
     @property
+    def collections_manager(self):
+        """Get the collections manager (RenderEngineCollectionsLoader instance).
+
+        This property provides access to the underlying collections loader,
+        useful for passing to UI components that need collection information.
+        """
+        return self.loader
+
+    @property
     def AVAILABLE_COLLECTIONS(self) -> Dict[str, str]:
         """Get available collections from config."""
         return {name: config.display_name

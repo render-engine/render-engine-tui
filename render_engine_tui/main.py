@@ -12,6 +12,7 @@ from textual.widgets import (
 from textual.binding import Binding
 
 from .render_engine_integration import ContentManager
+from .site_loader import SiteLoader
 from .ui import AboutScreen
 
 
