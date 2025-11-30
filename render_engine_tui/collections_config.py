@@ -1,42 +1,25 @@
 """Configuration data classes for collections."""
 
-from typing import List, Optional
-from dataclasses import dataclass
-
-
-@dataclass
-class Field:
-    """Represents a field in a collection."""
-
-    name: str
-    type: str
-    searchable: bool = False
-    editable: bool = True
-    display: bool = True
+from dataclasses import dataclass, field
+from typing import Set
 
 
 @dataclass
 class CollectionConfig:
-    """Configuration for a single collection."""
+    """Minimal collection configuration.
+
+    Stores only the essential metadata needed by the TUI:
+    - Basic identification and display
+    - Available fields (which subset of common fields this collection has)
+    """
 
     name: str
     display_name: str
-    table_name: str
-    id_column: str
-    junction_table: str
-    fields: List[Field]
-
-    def get_field(self, name: str) -> Optional[Field]:
-        """Get a field by name."""
-        for field in self.fields:
-            if field.name == name:
-                return field
-        return None
-
-    def get_editable_fields(self) -> List[Field]:
-        """Get all editable fields."""
-        return [f for f in self.fields if f.editable]
+    table_name: str = ""
+    id_column: str = ""
+    junction_table: str = ""
+    available_fields: Set[str] = field(default_factory=lambda: {"title", "description", "content", "slug", "date"})
 
     def has_field(self, name: str) -> bool:
         """Check if collection has a field."""
-        return any(f.name == name for f in self.fields)
+        return name in self.available_fields

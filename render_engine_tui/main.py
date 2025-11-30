@@ -1,8 +1,8 @@
 """Main TUI application."""
 
-from typing import Optional, Any, Dict, List
+from typing import Optional, List
 from textual.app import ComposeResult, App
-from textual.containers import Vertical, Horizontal
+from textual.containers import Horizontal
 from textual.widgets import (
     Header,
     Footer,
@@ -13,13 +13,18 @@ from textual.binding import Binding
 
 from render_engine import Page
 
-from .render_engine_integration import ContentManager, PostService, SearchService
-from .site_loader import SiteLoader
-from .ui import AboutScreen
+from .render_engine_integration import ContentManager
+from .ui import AboutScreen, CreatePostScreen, SearchModal, CollectionSelectScreen, MetadataModal
 
 
 class ContentEditorApp(App):
     """Main application."""
+
+    # Configuration constants
+    DEFAULT_COLLECTION = "blog"
+    PAGE_SIZE = 50
+    POSTS_TABLE_WIDTH = "30%"
+    PREVIEW_PANEL_WIDTH = "70%"
 
     BINDINGS = [
         Binding("n", "new_post", "New", show=True),
@@ -33,41 +38,40 @@ class ContentEditorApp(App):
         Binding("q", "app.quit", "Quit", show=True),
     ]
 
-    CSS = """
-    Screen {
+    CSS = f"""
+    Screen {{
         layout: vertical;
-    }
+    }}
 
-    #main-container {
+    #main-container {{
         width: 100%;
         height: 1fr;
         layout: horizontal;
-    }
+    }}
 
-    #posts-table {
-        width: 30%;
+    #posts-table {{
+        width: {POSTS_TABLE_WIDTH};
         height: 100%;
         border: solid $accent;
-    }
+    }}
 
-    #preview-content {
-        width: 70%;
+    #preview-content {{
+        width: {PREVIEW_PANEL_WIDTH};
         height: 100%;
         border: solid $accent;
-    }
+    }}
     """
 
     def __init__(self):
         """Initialize the app."""
         super().__init__()
         self.content_manager = ContentManager()
-        self.post_service = PostService(self.content_manager)
         self.current_post: Optional[Page] = None
         self.posts: List[Page] = []
-        self.current_collection = "blog"  # Default collection
+        self.current_collection = self.DEFAULT_COLLECTION
 
         # Pagination state
-        self.page_size = 50  # Number of posts per page
+        self.page_size = self.PAGE_SIZE
         self.current_page = 0  # 0-indexed page number
         self.current_search = None  # Store search term for pagination
 
@@ -116,8 +120,8 @@ class ContentEditorApp(App):
             self.current_search = search
 
             # Get all posts, apply search filtering, then paginate
-            all_posts = self.post_service.get_all_posts()
-            filtered_posts = SearchService.search(all_posts, search) if search else all_posts
+            all_posts = self.content_manager.get_all_posts()
+            filtered_posts = self.content_manager.search_posts(all_posts, search) if search else all_posts
 
             # Apply pagination
             offset = page * self.page_size
@@ -127,32 +131,35 @@ class ContentEditorApp(App):
             self.notify(f"Error loading posts: {e}", severity="error")
 
     def refresh_current_post(self, post_id: int) -> None:
-        """Refresh a single post in the table without reloading all posts.
+        """Refresh a single post in the table efficiently.
 
-        Much more efficient than load_posts() when only one post changed.
+        Updates the post from local cache. Only fetches from backend if necessary.
         Keeps scroll position and selection.
 
         Args:
             post_id: The ID of the post to refresh
         """
         try:
+            table = self.query_one("#posts-table", DataTable)
+
             # Find the post in our current list
             for i, post in enumerate(self.posts):
                 if getattr(post, "id", None) == post_id:
-                    # Fetch updated post data
-                    updated_post = self.post_service.get_post(post_id)
+                    # Use the post from our local cache - it's already fresh
+                    # Only fetch from backend if this specific post doesn't have content
+                    updated_post = post
+                    if getattr(post, "content", None) is None:
+                        updated_post = self.content_manager.get_post(post_id)
+
                     if updated_post:
-                        # Replace the post object in our list
-                        self.posts[i] = updated_post
+                        # Update post in list if fetched
+                        if updated_post != post:
+                            self.posts[i] = updated_post
 
-                        # Re-render just this row in the table
-                        table = self.query_one("#posts-table", DataTable)
-
-                        # Format date
+                        # Format and update the table row
                         date_obj = getattr(updated_post, "date", None)
                         date_str = date_obj.strftime("%Y-%m-%d") if date_obj else "N/A"
 
-                        # Update row data (title with fallback to slug)
                         title = getattr(updated_post, "title", None) or getattr(
                             updated_post, "slug", "(untitled)"
                         )
@@ -164,6 +171,7 @@ class ContentEditorApp(App):
                             self.current_post
                             and getattr(self.current_post, "id", None) == post_id
                         ):
+                            self.current_post = updated_post
                             self.update_preview()
                     break
         except Exception as e:
@@ -228,15 +236,17 @@ class ContentEditorApp(App):
             self.current_post = post
 
             try:
-                # Get full post content
-                post_id = getattr(post, "id", None)
-                full_post = self.post_service.get_post(post_id)
-                if not full_post:
-                    preview.text = "Post not found"
-                    return
+                # Check if content is already available in the post object
+                content = getattr(post, 'content', None)
 
-                # Show raw content (use _content for unprocessed source)
-                content = full_post.content
+                # Only fetch from backend if content is missing
+                if content is None:
+                    post_id = getattr(post, "id", None)
+                    full_post = self.content_manager.get_post(post_id)
+                    if not full_post:
+                        preview.text = "Post not found"
+                        return
+                    content = full_post.content
 
                 if content:
                     preview.text = str(content)
@@ -277,18 +287,14 @@ class ContentEditorApp(App):
 
     def action_new_post(self):
         """Create a new blog post."""
-        from .ui import CreatePostScreen
-
         def on_created(post_id):
             self.load_posts()
             self.notify("Post created successfully", severity="information")
 
-        self.push_screen(CreatePostScreen(self.content_manager, on_created, self.post_service))
+        self.push_screen(CreatePostScreen(self.content_manager, on_created))
 
     def action_search(self):
         """Open search modal."""
-        from .ui import SearchModal
-
         def on_search(search_term):
             self.load_posts(search=search_term)
             if search_term:
@@ -300,8 +306,6 @@ class ContentEditorApp(App):
 
     def action_change_collection(self):
         """Open collection selector modal."""
-        from .ui import CollectionSelectScreen
-
         def on_collection_selected(collection: str):
             """Handle collection selection."""
             if collection != self.current_collection:
@@ -351,11 +355,9 @@ class ContentEditorApp(App):
             self.notify("No post selected", severity="warning")
             return
 
-        from .ui import MetadataModal
-
         try:
             post_id = getattr(self.current_post, "id", None)
-            full_post = self.post_service.get_post(post_id)
+            full_post = self.content_manager.get_post(post_id)
             if full_post:
                 self.push_screen(MetadataModal(full_post))
             else:

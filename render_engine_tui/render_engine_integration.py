@@ -7,26 +7,21 @@ This module bridges the TUI with render-engine, allowing it to:
 """
 
 from pathlib import Path
-from typing import Dict, Optional, List, Any, Tuple
-import importlib
-import inspect
-import sys
-import tomllib
+from typing import Dict, Optional, List, Any
 import logging
 
-from .collections_config import CollectionConfig, Field
-from render_engine import Site, Collection, Page
+from .site_loader import SiteLoader
+from .collections_config import CollectionConfig
+from render_engine import Collection, Page
 
 logger = logging.getLogger(__name__)
 
 
-class RenderEngineCollectionsLoader:
+class RenderEngineCollectionsLoader(SiteLoader):
     """Loads collection configurations from a render-engine Site.
 
-    Handles all aspects of loading and parsing render-engine configuration:
-    - Reading pyproject.toml
-    - Dynamically importing the Site
-    - Extracting collection schemas
+    Extends SiteLoader with schema extraction for CollectionConfig objects.
+    Inherits all Site loading logic from parent class.
     """
 
     def __init__(self, project_root: Optional[Path] = None):
@@ -36,140 +31,15 @@ class RenderEngineCollectionsLoader:
             project_root: Path to the render-engine project root.
                          Defaults to current working directory.
         """
-        self.project_root = project_root or Path.cwd()
-        self.pyproject_path = self.project_root / "pyproject.toml"
-        self._config: Optional[Dict[str, Any]] = None
-        self._site: Optional[Site] = None
-        self._module: Optional[Any] = None
+        super().__init__(project_root)
         self.collections: Dict[str, CollectionConfig] = {}
         self._load_collections()
-
-    @property
-    def config(self) -> Dict[str, Any]:
-        """Load and cache the [tool.render-engine] configuration."""
-        if self._config is None:
-            self._config = self._load_config()
-        return self._config
-
-    def _load_config(self) -> Dict[str, Any]:
-        """Read pyproject.toml and extract [tool.render-engine] section.
-
-        Returns:
-            Dictionary containing render-engine configuration
-
-        Raises:
-            FileNotFoundError: If pyproject.toml doesn't exist
-            KeyError: If [tool.render-engine] section is missing
-        """
-        if not self.pyproject_path.exists():
-            raise FileNotFoundError(
-                f"pyproject.toml not found at {self.pyproject_path}. "
-                "Make sure you're running from a render-engine project directory."
-            )
-
-        with open(self.pyproject_path, "rb") as f:
-            pyproject = tomllib.load(f)
-
-        if "tool" not in pyproject or "render-engine" not in pyproject["tool"]:
-            raise KeyError(
-                "[tool.render-engine] section not found in pyproject.toml. "
-                "Add configuration like:\n"
-                "[tool.render-engine.cli]\n"
-                'module = "routes"\n'
-                'site = "app"'
-            )
-
-        return pyproject["tool"]["render-engine"]
-
-    def _get_site_reference(self) -> Tuple[str, str]:
-        """Get the module and site object names from configuration.
-
-        Returns:
-            Tuple of (module_name, site_name)
-        """
-        cli_config = self.config.get("cli", {})
-        module = cli_config.get("module")
-        site = cli_config.get("site")
-
-        if not module or not site:
-            raise ValueError(
-                "[tool.render-engine.cli] must specify both 'module' and 'site'.\n"
-                "Example:\n"
-                "[tool.render-engine.cli]\n"
-                'module = "routes"\n'
-                'site = "app"'
-            )
-
-        return module, site
-
-    def _load_site(self) -> Site:
-        """Dynamically import and return the render-engine Site object.
-
-        Returns:
-            The instantiated Site object from the configured module
-
-        Raises:
-            ImportError: If module cannot be imported
-            AttributeError: If site object doesn't exist in module
-        """
-        if self._site is not None:
-            return self._site
-
-        module_name, site_name = self._get_site_reference()
-
-        # Add project root to sys.path so we can import the module
-        project_root_str = str(self.project_root)
-        if project_root_str not in sys.path:
-            sys.path.insert(0, project_root_str)
-
-        try:
-            # Import the module
-            self._module = importlib.import_module(module_name)
-
-            # Get the site object
-            if not hasattr(self._module, site_name):
-                raise AttributeError(
-                    f"Module '{module_name}' does not have a '{site_name}' attribute. "
-                    f"Check your [tool.render-engine.cli] configuration."
-                )
-
-            self._site = getattr(self._module, site_name)
-
-            if not isinstance(self._site, Site):
-                raise TypeError(
-                    f"{module_name}.{site_name} is not a render_engine.Site instance. "
-                    f"Got {type(self._site)} instead."
-                )
-
-            return self._site
-
-        except ImportError as e:
-            raise ImportError(
-                f"Failed to import module '{module_name}'. "
-                f"Make sure the module exists and is importable from {self.project_root}. "
-                f"Original error: {e}"
-            ) from e
-
-    def _get_render_engine_collections(self) -> Dict[str, Collection]:
-        """Get all collections registered with the site.
-
-        Returns:
-            Dictionary mapping collection slugs to Collection instances
-        """
-        site = self._load_site()
-
-        # Filter route_list to only include Collection instances
-        # (route_list also includes Page instances)
-        return {
-            slug: entry
-            for slug, entry in site.route_list.items()
-            if isinstance(entry, Collection)
-        }
 
     def _load_collections(self) -> None:
         """Load collections from render-engine Site."""
         try:
-            collections = self._get_render_engine_collections()
+            # Use parent's get_collections() method
+            collections = self.get_collections()
 
             for slug, collection in collections.items():
                 # Try to extract collection config from render-engine collection
@@ -202,22 +72,16 @@ class RenderEngineCollectionsLoader:
             if not table_name:
                 table_name = slug
 
-            # Generate junction table name
-            junction_table = f"{table_name}_tags"
-
-            # Generate ID column name
-            id_column = f"{table_name}_id"
-
-            # Extract fields
-            fields = self._extract_fields(collection)
+            # Extract available fields
+            available_fields = self._extract_available_fields(collection)
 
             return CollectionConfig(
                 name=slug,
                 display_name=display_name,
                 table_name=table_name,
-                id_column=id_column,
-                junction_table=junction_table,
-                fields=fields,
+                id_column=f"{table_name}_id",
+                junction_table=f"{table_name}_tags",
+                available_fields=available_fields,
             )
         except Exception as e:
             print(f"Warning: Failed to extract config for collection '{slug}': {e}")
@@ -248,75 +112,39 @@ class RenderEngineCollectionsLoader:
 
         return None
 
-    def _extract_fields(self, collection) -> List[Field]:
-        """Extract field information from a Collection.
+    def _extract_available_fields(self, collection) -> set:
+        """Extract which fields are available in this collection.
 
-        For render-engine Collections, we extract fields based on:
-        1. Collection's defined attributes
-        2. Inspection of the Collection class
-        3. Known render-engine fields (id, slug, title, description, content, date, etc.)
+        For render-engine Collections, we detect fields based on:
+        1. Parser type (Markdown parsers have title, description, content)
+        2. Common render-engine fields (id, slug, date)
 
         Args:
             collection: The render-engine Collection instance
 
         Returns:
-            List of Field objects
+            Set of field names available in this collection
         """
-        fields = []
+        # Always available
+        available = {"id", "slug", "date"}
 
-        # Always include common fields
-        common_fields = {
-            "id": Field(name="id", type="int", display=False),
-            "slug": Field(name="slug", type="str", searchable=True),
-            "date": Field(name="date", type="datetime"),
-        }
-
-        # Check which common fields are likely present
-        fields_to_include = {"id", "slug", "date"}
-
-        # Try to determine which fields the collection uses
+        # Detect based on parser type
         if hasattr(collection, "Parser"):
             parser = collection.Parser
-            # Check parser class for field hints
             parser_name = parser.__name__
 
             # Markdown parsers typically have title, description, content
-            if "Markdown" in parser_name:
-                fields_to_include.update({"title", "description", "content"})
+            if "Markdown" in parser_name or "YAML" in parser_name:
+                available.update({"title", "description", "content"})
             # Text parsers might just have content
             elif "Text" in parser_name:
-                fields_to_include.add("content")
+                available.add("content")
 
-        # Add detected fields
-        for field_name in sorted(fields_to_include):
-            if field_name in common_fields:
-                fields.append(common_fields[field_name])
+        # Add metadata fields that might be present
+        available.update({"external_link", "image_url", "tags"})
 
-        # Add optional metadata fields if they're commonly used
-        for field_name in ["external_link", "image_url", "tags"]:
-            if field_name not in [f.name for f in fields]:
-                fields.append(
-                    Field(name=field_name, type="str", searchable=False, editable=True)
-                )
-
-        return fields if fields else self._get_default_fields()
-
-    def _get_default_fields(self) -> List[Field]:
-        """Get default field set for collections without explicit schema.
-
-        Returns:
-            List of default Field objects
-        """
-        return [
-            Field(name="id", type="int", display=False),
-            Field(name="slug", type="str", searchable=True),
-            Field(name="title", type="str", searchable=True, editable=True),
-            Field(name="description", type="str", searchable=True, editable=True),
-            Field(name="content", type="str", searchable=True, editable=True),
-            Field(name="external_link", type="str", editable=True),
-            Field(name="image_url", type="str", editable=True),
-            Field(name="date", type="datetime"),
-        ]
+        # Fallback to common fields if detection failed
+        return available if available else {"title", "description", "content", "slug", "date"}
 
     def get_collection(self, name: str) -> Optional[CollectionConfig]:
         """Get a collection by name."""
@@ -342,7 +170,8 @@ class RenderEngineCollectionsLoader:
         Returns:
             Dictionary mapping collection slugs to Collection instances
         """
-        return self._get_render_engine_collections()
+        # Use parent's get_collections() method
+        return self.get_collections()
 
     def get_content_manager_for_collection(self, slug: str) -> Optional[Any]:
         """Get the ContentManager class for a collection.
@@ -388,12 +217,18 @@ class RenderEngineCollectionsLoader:
 
 
 class ContentManager:
-    """Thin adapter for render-engine ContentManager.
+    """Unified content management interface combining render-engine ContentManager,
+    post operations, and search functionality.
 
-    Handles collection switching and provides access to the underlying
-    render-engine ContentManager. All content operations are delegated
-    to separate services (PostService, SearchService).
+    Handles:
+    - Collection switching
+    - Post retrieval and creation
+    - Search operations
+    - Pagination support
     """
+
+    # Fields that can be searched
+    SEARCHABLE_FIELDS = ['title', 'slug', 'content', 'description']
 
     def __init__(
         self,
@@ -418,6 +253,7 @@ class ContentManager:
 
         self.current_collection = collection
         self._content_manager_instance: Optional[Any] = None
+        self._posts_cache: Dict[str, List[Page]] = {}  # Cache posts by collection
         self._setup_content_manager()
 
     @property
@@ -445,6 +281,7 @@ class ContentManager:
             available = self.loader.get_available_collection_names()
             raise ValueError(f"Invalid collection '{collection}'. Available: {available}")
         self.current_collection = collection
+        self._posts_cache.clear()  # Clear cache when switching collections
         self._setup_content_manager()
 
     def get_instance(self):
@@ -486,60 +323,16 @@ class ContentManager:
                 f"Ensure the collection is properly configured in your render-engine project."
             )
 
+    # ====== Post Operations (merged from PostService) ======
 
-class SearchService:
-    """Handles search operations on Page objects.
-
-    Performs in-memory filtering on a list of pages.
-    """
-
-    SEARCHABLE_FIELDS = ['title', 'slug', 'content', 'description']
-
-    @staticmethod
-    def search(pages: List[Page], search_term: str) -> List[Page]:
-        """Search pages by common fields.
-
-        Args:
-            pages: List of Page objects to search
-            search_term: Term to search for
-
-        Returns:
-            List of matching Page objects
-        """
-        if not search_term:
-            return pages
-
-        search_lower = search_term.lower()
-        filtered = []
-
-        for page in pages:
-            for attr in SearchService.SEARCHABLE_FIELDS:
-                if hasattr(page, attr):
-                    value = str(getattr(page, attr, "")).lower()
-                    if search_lower in value:
-                        filtered.append(page)
-                        break
-
-        return filtered
-
-
-class PostService:
-    """Handles post operations using a ContentManager.
-
-    Provides simple delegation to render-engine's ContentManager.
-    Pagination is the caller's responsibility.
-    """
-
-    def __init__(self, content_manager: ContentManager):
-        """Initialize the post service.
-
-        Args:
-            content_manager: ContentManager instance to use
-        """
-        self.content_manager = content_manager
-
-    def get_all_posts(self) -> List[Page]:
+    def get_all_posts(self, use_cache: bool = True) -> List[Page]:
         """Get all posts from current collection.
+
+        Uses caching to avoid repeated backend calls. Cache is automatically
+        invalidated when switching collections.
+
+        Args:
+            use_cache: Whether to use cached posts if available (default: True)
 
         Returns:
             List of all Page objects
@@ -548,14 +341,30 @@ class PostService:
             RuntimeError: If fetch fails
         """
         try:
-            manager = self.content_manager.get_instance()
+            # Check cache first
+            if use_cache and self.current_collection in self._posts_cache:
+                return self._posts_cache[self.current_collection]
+
+            # Fetch from backend
+            manager = self.get_instance()
             if not hasattr(manager, "pages"):
                 raise RuntimeError(
                     f"{manager.__class__.__name__} does not have a pages property"
                 )
-            return list(manager.pages)
+            posts = list(manager.pages)
+
+            # Cache for future use
+            self._posts_cache[self.current_collection] = posts
+            return posts
         except Exception as e:
             raise RuntimeError(f"Failed to fetch pages: {e}")
+
+    def invalidate_posts_cache(self) -> None:
+        """Invalidate the posts cache for the current collection.
+
+        Call this after creating or modifying posts to ensure fresh data on next fetch.
+        """
+        self._posts_cache.pop(self.current_collection, None)
 
     def get_post(self, post_id: int) -> Optional[Page]:
         """Get a single post by ID.
@@ -609,8 +418,8 @@ class PostService:
             import frontmatter
             from datetime import datetime
 
-            manager = self.content_manager.get_instance()
-            config = self.content_manager._get_current_config()
+            manager = self.get_instance()
+            config = self._get_current_config()
 
             if date is None:
                 date = datetime.now().isoformat()
@@ -644,7 +453,7 @@ class PostService:
             manager.create_entry(
                 content=markdown_with_frontmatter,
                 table=config.table_name,
-                collection_name=self.content_manager.current_collection,
+                collection_name=self.current_collection,
             )
 
             # Get the ID of the created post
@@ -667,11 +476,41 @@ class PostService:
             RuntimeError: If post not found
         """
         try:
-            posts = self.get_all_posts()
-            matching = SearchService.search(posts, slug)
+            # Invalidate cache to fetch fresh posts
+            self.invalidate_posts_cache()
+            posts = self.get_all_posts(use_cache=False)
+            matching = self.search_posts(posts, slug)
             if matching:
                 return matching[0].id
             raise RuntimeError(f"Post with slug '{slug}' not found after creation")
         except Exception as e:
             raise RuntimeError(f"Failed to get post ID after creation: {e}")
+
+    # ====== Search Operations (merged from SearchService) ======
+
+    def search_posts(self, pages: List[Page], search_term: str) -> List[Page]:
+        """Search pages by common fields.
+
+        Args:
+            pages: List of Page objects to search
+            search_term: Term to search for
+
+        Returns:
+            List of matching Page objects
+        """
+        if not search_term:
+            return pages
+
+        search_lower = search_term.lower()
+        filtered = []
+
+        for page in pages:
+            for attr in self.SEARCHABLE_FIELDS:
+                if hasattr(page, attr):
+                    value = str(getattr(page, attr, "")).lower()
+                    if search_lower in value:
+                        filtered.append(page)
+                        break
+
+        return filtered
 
