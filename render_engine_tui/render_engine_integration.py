@@ -827,8 +827,10 @@ class ContentManager:
                     page_dict[attr] = getattr(page, attr)
 
             # Extract RAW content (not parsed) for editing in TUI
-            # Use page.content (raw source), NOT page._content (parsed/rendered)
-            if hasattr(page, 'content'):
+            # Priority: _raw_content (preserved before parsing) > content > _content
+            if hasattr(page, '_raw_content'):
+                page_dict['content'] = page._raw_content
+            elif hasattr(page, 'content'):
                 page_dict['content'] = page.content
             elif hasattr(page, '_content'):
                 page_dict['content'] = page._content  # fallback for edge cases
