@@ -2,12 +2,12 @@
 
 from typing import Optional, Any, Dict
 from textual.app import ComposeResult, App
-from textual.containers import Vertical, Horizontal, ScrollableContainer
+from textual.containers import Vertical, Horizontal
 from textual.widgets import (
     Header,
     Footer,
     DataTable,
-    Static,
+    TextArea,
 )
 from textual.binding import Binding
 
@@ -52,11 +52,6 @@ class ContentEditorApp(App):
         height: 100%;
         border: solid $accent;
     }
-
-    #content-scroll {
-        width: 100%;
-        height: 100%;
-    }
     """
 
     def __init__(self):
@@ -77,11 +72,11 @@ class ContentEditorApp(App):
         yield Header()
         with Horizontal(id="main-container"):
             yield DataTable(id="posts-table")
-            with ScrollableContainer(id="content-scroll"):
-                yield Static(
-                    "Select a post to preview",
-                    id="preview-content",
-                )
+            yield TextArea(
+                text="Select a post to preview",
+                id="preview-content",
+                read_only=True,
+            )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -213,7 +208,7 @@ class ContentEditorApp(App):
     def update_preview(self):
         """Update the preview panel with the currently selected post."""
         table = self.query_one("#posts-table", DataTable)
-        preview = self.query_one("#preview-content", Static)
+        preview = self.query_one("#preview-content", TextArea)
 
         if (
             self.posts
@@ -227,30 +222,19 @@ class ContentEditorApp(App):
                 # Get full post content
                 full_post = self.content_manager.get_post(post["id"])
                 if not full_post:
-                    preview.update("Post not found")
+                    preview.text = "Post not found"
                     return
 
-                # Build preview with content only (metadata in popup)
-                preview_lines = []
-
-                # Title
-                title = full_post.get("title", "")
-                if title:
-                    preview_lines.append(f"# {title}\n")
-
-                # Content (plain text)
+                # Show raw content only
                 content = full_post.get("content", "")
                 if content:
-                    preview_lines.append(content)
+                    preview.text = content
                 else:
-                    preview_lines.append("(No content available)")
-
-                preview_content = "\n".join(preview_lines)
-                preview.update(preview_content)
+                    preview.text = "(No content available)"
             except Exception as e:
                 self.notify(f"Error loading post content: {e}", severity="error")
         else:
-            preview.update("Select a post to preview")
+            preview.text = "Select a post to preview"
 
     @property
     def cursor_row(self):
