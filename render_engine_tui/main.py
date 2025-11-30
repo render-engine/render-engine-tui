@@ -1,5 +1,6 @@
 """Main TUI application."""
 
+    import pdb
 from typing import Optional, Any, Dict, List
 from textual.app import ComposeResult, App
 from textual.containers import Vertical, Horizontal
@@ -211,6 +212,7 @@ class ContentEditorApp(App):
 
     def update_preview(self):
         """Update the preview panel with the currently selected post."""
+        pdb.set_trace()
         table = self.query_one("#posts-table", DataTable)
         preview = self.query_one("#preview-content", TextArea)
 
