@@ -133,7 +133,7 @@ class ContentEditorApp(App):
         try:
             # Find the post in our current list
             for i, post in enumerate(self.posts):
-                if getattr(post, 'id', None) == post_id:
+                if getattr(post, "id", None) == post_id:
                     # Fetch updated post data
                     updated_post = self.content_manager.get_post(post_id)
                     if updated_post:
@@ -144,18 +144,21 @@ class ContentEditorApp(App):
                         table = self.query_one("#posts-table", DataTable)
 
                         # Format date
-                        date_obj = getattr(updated_post, 'date', None)
-                        date_str = (
-                            date_obj.strftime("%Y-%m-%d") if date_obj else "N/A"
-                        )
+                        date_obj = getattr(updated_post, "date", None)
+                        date_str = date_obj.strftime("%Y-%m-%d") if date_obj else "N/A"
 
                         # Update row data (title with fallback to slug)
-                        title = getattr(updated_post, 'title', None) or getattr(updated_post, 'slug', '(untitled)')
+                        title = getattr(updated_post, "title", None) or getattr(
+                            updated_post, "slug", "(untitled)"
+                        )
                         table.update_cell(str(post_id), "Title", title)
                         table.update_cell(str(post_id), "Date", date_str)
 
                         # Update the preview if it's the currently selected post
-                        if self.current_post and getattr(self.current_post, 'id', None) == post_id:
+                        if (
+                            self.current_post
+                            and getattr(self.current_post, "id", None) == post_id
+                        ):
                             self.update_preview()
                     break
         except Exception as e:
@@ -181,17 +184,15 @@ class ContentEditorApp(App):
 
         # Sort posts by date (newest first), handling None dates
         sorted_posts = sorted(
-            self.posts,
-            key=lambda p: getattr(p, 'date', None) or None,
-            reverse=True
+            self.posts, key=lambda p: getattr(p, "date", None) or None, reverse=True
         )
 
         # Add rows with title (fallback to slug if no title)
         for post in sorted_posts:
-            post_id = getattr(post, 'id', None)
-            post_date = getattr(post, 'date', None)
-            post_title = getattr(post, 'title', None)
-            post_slug = getattr(post, 'slug', '(untitled)')
+            post_id = getattr(post, "id", None)
+            post_date = getattr(post, "date", None)
+            post_title = getattr(post, "title", None)
+            post_slug = getattr(post, "slug", "(untitled)")
 
             date_str = post_date.strftime("%Y-%m-%d") if post_date else "N/A"
 
@@ -223,14 +224,15 @@ class ContentEditorApp(App):
 
             try:
                 # Get full post content
-                post_id = getattr(post, 'id', None)
+                post_id = getattr(post, "id", None)
                 full_post = self.content_manager.get_post(post_id)
                 if not full_post:
                     preview.text = "Post not found"
                     return
 
-                # Show raw content (access content attribute directly)
-                content = getattr(full_post, 'content', None)
+                # Show raw content (use _content for unprocessed source)
+                content = full_post.content
+
                 if content:
                     preview.text = str(content)
                 else:
@@ -347,7 +349,7 @@ class ContentEditorApp(App):
         from .ui import MetadataModal
 
         try:
-            post_id = getattr(self.current_post, 'id', None)
+            post_id = getattr(self.current_post, "id", None)
             full_post = self.content_manager.get_post(post_id)
             if full_post:
                 self.push_screen(MetadataModal(full_post))
