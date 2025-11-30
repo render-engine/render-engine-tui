@@ -826,11 +826,12 @@ class ContentManager:
                 if hasattr(page, attr):
                     page_dict[attr] = getattr(page, attr)
 
-            # Extract content with fallback hierarchy
+            # Extract content using render-engine's _content property
+            # This property calls Parser.parse() on the raw content
             if hasattr(page, '_content'):
                 page_dict['content'] = page._content
             elif hasattr(page, 'content'):
-                page_dict['content'] = getattr(page, 'content')
+                page_dict['content'] = getattr(page, 'content', '')
 
             # Merge metadata if available
             if hasattr(page, 'meta') and isinstance(page.meta, dict):
