@@ -826,12 +826,12 @@ class ContentManager:
                 if hasattr(page, attr):
                     page_dict[attr] = getattr(page, attr)
 
-            # Extract content using render-engine's _content property
-            # This property calls Parser.parse() on the raw content
-            if hasattr(page, '_content'):
-                page_dict['content'] = page._content
-            elif hasattr(page, 'content'):
-                page_dict['content'] = getattr(page, 'content', '')
+            # Extract RAW content (not parsed) for editing in TUI
+            # Use page.content (raw source), NOT page._content (parsed/rendered)
+            if hasattr(page, 'content'):
+                page_dict['content'] = page.content
+            elif hasattr(page, '_content'):
+                page_dict['content'] = page._content  # fallback for edge cases
 
             # Merge metadata if available
             if hasattr(page, 'meta') and isinstance(page.meta, dict):
