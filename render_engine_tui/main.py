@@ -349,8 +349,13 @@ class ContentEditorApp(App):
             and table.cursor_row < len(self.posts)
         ):
             post = self.posts[table.cursor_row]
-
-        preview.text = post.Parser.parse_content_path(post.content_path)[1]
+            # Update current_post for metadata display
+            self.current_post = post
+            # Use the raw content from the Page object
+            preview.text = getattr(post, "content", "No content available")
+        else:
+            # No post selected - show placeholder
+            preview.text = "Select a post to preview"
 
     @property
     def cursor_row(self):
