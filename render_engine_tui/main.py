@@ -349,9 +349,8 @@ class ContentEditorApp(App):
             and table.cursor_row < len(self.posts)
         ):
             post = self.posts[table.cursor_row]
-            self.current_post = post
 
-        preview.text = self.current_post.Parser.parse_content_path(self.content_path)[1]
+        preview.text = post.Parser.parse_content_path(self.content_path)[1]
 
     @property
     def cursor_row(self):
