@@ -18,7 +18,8 @@ from textual.widgets import (
 from textual.binding import Binding
 from textual.screen import Screen, ModalScreen
 
-from .render_engine_integration import ContentManager, RenderEngineCollectionsLoader
+from .render_engine_integration import ContentManager
+from .site_loader import SiteLoader
 
 
 class SearchModal(ModalScreen):
@@ -190,14 +191,14 @@ class CollectionSelectScreen(ModalScreen):
 
         Args:
             on_collection_selected: Callback function that receives the selected collection name
-            loader: RenderEngineCollectionsLoader instance (optional, creates new one if not provided)
+            loader: SiteLoader instance (optional, creates new one if not provided)
         """
         super().__init__()
         self.on_collection_selected = on_collection_selected
         self.loader = loader
         if self.loader is None:
             # Create a new instance if not provided
-            self.loader = RenderEngineCollectionsLoader()
+            self.loader = SiteLoader()
 
     def compose(self) -> ComposeResult:
         """Compose the collection selection modal."""
@@ -212,8 +213,9 @@ class CollectionSelectScreen(ModalScreen):
         list_view = self.query_one("#collection-list", ListView)
 
         # Add available collections from loader
-        for collection_name in self.loader.get_available_collection_names():
-            display_name = self.loader.get_collection_display_name(collection_name)
+        collections = self.loader.get_collections()
+        for collection_name, collection in collections.items():
+            display_name = getattr(collection, "_title", collection_name.title())
             label = Label(display_name, id=f"collection-{collection_name}")
             list_item = ListItem(label, id=collection_name)
             list_view.append(list_item)

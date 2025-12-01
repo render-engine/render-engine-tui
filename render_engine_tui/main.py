@@ -322,7 +322,7 @@ class ContentEditorApp(App):
 
         self.push_screen(
             CollectionSelectScreen(
-                on_collection_selected, self.content_manager.collections_manager
+                on_collection_selected, self.content_manager.loader
             )
         )
 

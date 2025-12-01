@@ -1,8 +1,7 @@
 """Minimal render-engine Site loader for the TUI.
 
-This module provides a simplified interface to load render-engine Sites
-directly from pyproject.toml configuration, without any custom schema
-inference or normalization.
+This module loads render-engine Sites directly from pyproject.toml configuration.
+It works directly with render-engine's Collection objects.
 """
 
 from pathlib import Path
@@ -15,24 +14,17 @@ from render_engine import Site, Collection
 
 
 class SiteLoader:
-    """Loads render-engine Site and provides access to Collections.
-
-    This simplified loader trusts render-engine's native Collection interface
-    and avoids custom schema inference. Works directly with Collection objects
-    and their ContentManager instances.
-    """
+    """Loads render-engine Site and provides access to Collections."""
 
     def __init__(self, project_root: Optional[Path] = None):
         """Initialize the loader.
 
         Args:
-            project_root: Path to the render-engine project root.
-                         Defaults to current working directory.
+            project_root: Path to the render-engine project root (defaults to cwd).
         """
         self.project_root = project_root or Path.cwd()
         self.pyproject_path = self.project_root / "pyproject.toml"
         self._site: Optional[Site] = None
-        self._module: Optional[Any] = None
 
     def load_site(self) -> Site:
         """Load the render-engine Site from pyproject.toml configuration.
@@ -89,17 +81,16 @@ class SiteLoader:
             sys.path.insert(0, project_root_str)
 
         try:
-            # Import the module
-            self._module = importlib.import_module(module_name)
+            # Import the module and get the site object
+            module = importlib.import_module(module_name)
 
-            # Get the site object
-            if not hasattr(self._module, site_name):
+            if not hasattr(module, site_name):
                 raise AttributeError(
                     f"Module '{module_name}' does not have a '{site_name}' attribute. "
                     f"Check your [tool.render-engine.cli] configuration."
                 )
 
-            site = getattr(self._module, site_name)
+            site = getattr(module, site_name)
 
             if not isinstance(site, Site):
                 raise TypeError(
@@ -139,11 +130,3 @@ class SiteLoader:
             The Collection instance or None if not found
         """
         return self.get_collections().get(slug)
-
-    def get_collection_names(self) -> list[str]:
-        """Get list of available collection slugs.
-
-        Returns:
-            List of collection slug names
-        """
-        return list(self.get_collections().keys())

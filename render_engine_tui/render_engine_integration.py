@@ -1,12 +1,11 @@
-"""Integration with render-engine to load collections from Site configuration.
+"""Integration with render-engine to provide a unified content management interface.
 
-This module bridges the TUI with render-engine, allowing it to:
-1. Load collections from render-engine Site configuration
-2. Use Collection objects and their ContentManager instances for data operations
+This module provides ContentManager which wraps render-engine's Collection
+and ContentManager to offer post operations and search functionality.
 """
 
 from pathlib import Path
-from typing import Dict, Optional, List, Any
+from typing import Dict, Optional, List
 import logging
 
 from .site_loader import SiteLoader
@@ -15,123 +14,11 @@ from render_engine import Collection, Page
 logger = logging.getLogger(__name__)
 
 
-class RenderEngineCollectionsLoader(SiteLoader):
-    """Loads collections from a render-engine Site.
-
-    Extends SiteLoader and provides direct access to render-engine Collection objects.
-    Inherits all Site loading logic from parent class.
-    """
-
-    def __init__(self, project_root: Optional[Path] = None):
-        """Initialize the loader.
-
-        Args:
-            project_root: Path to the render-engine project root.
-                         Defaults to current working directory.
-        """
-        super().__init__(project_root)
-        self._collections: Optional[Dict[str, Collection]] = None
-
-    def get_collections(self) -> Dict[str, Collection]:
-        """Get all collections from render-engine Site.
-
-        Returns:
-            Dictionary mapping collection slugs to Collection instances
-        """
-        if self._collections is None:
-            self._collections = super().get_collections()
-        return self._collections
-
-    def get_collection(self, name: str) -> Optional[Collection]:
-        """Get a collection by name.
-
-        Args:
-            name: The collection slug
-
-        Returns:
-            Collection instance or None if not found
-        """
-        return self.get_collections().get(name)
-
-    def get_all_collections(self) -> Dict[str, Collection]:
-        """Get all available collections.
-
-        Returns:
-            Dictionary mapping slugs to Collection objects
-        """
-        return self.get_collections()
-
-    def get_available_collection_names(self) -> List[str]:
-        """Get list of available collection names."""
-        return list(self.get_collections().keys())
-
-    def validate_collection(self, name: str) -> bool:
-        """Check if a collection exists."""
-        return name in self.get_collections()
-
-    def get_collection_display_name(self, slug: str) -> str:
-        """Get the display name for a collection.
-
-        Args:
-            slug: The collection slug
-
-        Returns:
-            Display name (uses _title if available, otherwise title case of slug)
-        """
-        collection = self.get_collection(slug)
-        if collection:
-            return getattr(collection, "_title", slug.title())
-        return slug.title()
-
-    def get_content_manager_for_collection(self, slug: str) -> Optional[Any]:
-        """Get the ContentManager class for a collection.
-
-        Args:
-            slug: The collection slug
-
-        Returns:
-            The ContentManager class if available, None otherwise
-        """
-        try:
-            collection = self.get_collection(slug)
-            if collection and hasattr(collection, "ContentManager"):
-                return collection.ContentManager
-        except Exception:
-            pass
-        return None
-
-    def get_content_manager_extras(self, slug: str) -> Dict[str, Any]:
-        """Get ContentManager initialization extras for a collection.
-
-        Args:
-            slug: The collection slug
-
-        Returns:
-            Dictionary of extras to pass to ContentManager.__init__()
-        """
-        try:
-            collection = self.get_collection(slug)
-            if collection:
-                # Get the collection name from the slug (used for database queries)
-                extras = getattr(collection, "content_manager_extras", {}).copy()
-                # Always ensure the collection instance is available
-                if "collection" not in extras:
-                    extras["collection"] = collection
-                return extras
-        except Exception:
-            pass
-        return {}
-
-
 class ContentManager:
-    """Unified content management interface combining render-engine ContentManager,
-    post operations, and search functionality.
+    """Unified content management interface for TUI.
 
-    Handles:
-    - Collection switching
-    - Post retrieval and creation
-    - Search operations
-    - Pagination support
+    Works directly with render-engine's Collection and its built-in
+    ContentManager for post operations and search.
     """
 
     # Fields that can be searched
@@ -150,29 +37,24 @@ class ContentManager:
 
         Raises:
             ValueError: If collection is invalid
-            RuntimeError: If render-engine config not found or ContentManager setup fails
+            RuntimeError: If render-engine config not found
         """
-        self.loader = RenderEngineCollectionsLoader(project_root=project_root)
-
-        if not self.loader.validate_collection(collection):
-            available = self.loader.get_available_collection_names()
-            raise ValueError(f"Invalid collection '{collection}'. Available: {available}")
-
+        self.loader = SiteLoader(project_root=project_root)
         self.current_collection = collection
-        self._content_manager_instance: Optional[Any] = None
         self._posts_cache: Dict[str, List[Page]] = {}  # Cache posts by collection
-        self._setup_content_manager()
 
-    @property
-    def collections_manager(self):
-        """Get the collections loader for accessing collection information."""
-        return self.loader
+        # Validate collection exists
+        if not self.get_current_collection():
+            available = list(self.loader.get_collections().keys())
+            raise ValueError(f"Invalid collection '{collection}'. Available: {available}")
 
     @property
     def AVAILABLE_COLLECTIONS(self) -> Dict[str, str]:
         """Get available collections with their display names."""
-        return {name: self.loader.get_collection_display_name(name)
-                for name in self.loader.get_available_collection_names()}
+        return {
+            name: getattr(collection, "_title", name.title())
+            for name, collection in self.loader.get_collections().items()
+        }
 
     def set_collection(self, collection: str) -> None:
         """Switch to a different collection at runtime.
@@ -182,27 +64,12 @@ class ContentManager:
 
         Raises:
             ValueError: If collection name is invalid
-            RuntimeError: If ContentManager setup fails
         """
-        if not self.loader.validate_collection(collection):
-            available = self.loader.get_available_collection_names()
+        if not self.loader.get_collection(collection):
+            available = list(self.loader.get_collections().keys())
             raise ValueError(f"Invalid collection '{collection}'. Available: {available}")
         self.current_collection = collection
         self._posts_cache.clear()  # Clear cache when switching collections
-        self._setup_content_manager()
-
-    def get_instance(self):
-        """Get the current render-engine ContentManager instance.
-
-        Returns:
-            The underlying render-engine ContentManager
-
-        Raises:
-            RuntimeError: If ContentManager not initialized
-        """
-        if self._content_manager_instance is None:
-            raise RuntimeError("ContentManager not initialized")
-        return self._content_manager_instance
 
     def get_current_collection(self) -> Optional[Collection]:
         """Get the current Collection object.
@@ -212,36 +79,7 @@ class ContentManager:
         """
         return self.loader.get_collection(self.current_collection)
 
-    def _get_current_config(self):
-        """Get the current Collection object.
-
-        Kept for backward compatibility, use get_current_collection() instead.
-        """
-        return self.get_current_collection()
-
-    def _setup_content_manager(self) -> None:
-        """Set up ContentManager for the current collection.
-
-        Raises:
-            RuntimeError: If ContentManager cannot be set up
-        """
-        cm_class = self.loader.get_content_manager_for_collection(
-            self.current_collection
-        )
-        if cm_class:
-            try:
-                # Get extras from render-engine configuration
-                extras = self.loader.get_content_manager_extras(self.current_collection)
-                self._content_manager_instance = cm_class(**extras)
-            except Exception as e:
-                raise RuntimeError(f"Failed to set up ContentManager for {self.current_collection}: {e}")
-        else:
-            raise RuntimeError(
-                f"No ContentManager available for collection '{self.current_collection}'. "
-                f"Ensure the collection is properly configured in your render-engine project."
-            )
-
-    # ====== Post Operations (merged from PostService) ======
+    # ====== Post Operations ======
 
     def get_all_posts(self, use_cache: bool = True) -> List[Page]:
         """Get all posts from current collection.
@@ -263,13 +101,13 @@ class ContentManager:
             if use_cache and self.current_collection in self._posts_cache:
                 return self._posts_cache[self.current_collection]
 
-            # Fetch from backend
-            manager = self.get_instance()
-            if not hasattr(manager, "pages"):
-                raise RuntimeError(
-                    f"{manager.__class__.__name__} does not have a pages property"
-                )
-            posts = list(manager.pages)
+            # Fetch from render-engine Collection
+            collection = self.get_current_collection()
+            if not collection:
+                raise RuntimeError(f"Collection '{self.current_collection}' not found")
+
+            # Use Collection's sorted_pages (already sorted by render-engine)
+            posts = list(collection.sorted_pages)
 
             # Cache for future use
             self._posts_cache[self.current_collection] = posts
@@ -336,7 +174,11 @@ class ContentManager:
             import frontmatter
             from datetime import datetime
 
-            manager = self.get_instance()
+            collection = self.get_current_collection()
+            if not collection:
+                raise RuntimeError(f"Collection '{self.current_collection}' not found")
+
+            manager = collection.content_manager
 
             if date is None:
                 date = datetime.now().isoformat()
