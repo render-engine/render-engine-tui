@@ -316,7 +316,8 @@ class ContentEditorApp(App):
             self.posts, key=lambda p: getattr(p, "date", None) or None, reverse=True
         )
 
-        # Add rows with title (fallback to slug if no title)
+        # Build rows list
+        rows = []
         for post in sorted_posts:
             post_id = getattr(post, "id", None)
             post_date = getattr(post, "date", None)
@@ -328,12 +329,14 @@ class ContentEditorApp(App):
             # Show title, or fallback to slug if no title available
             title_display = post_title or post_slug
 
-            table.add_row(
+            rows.append((
                 str(post_id),
                 title_display,
                 date_str,
-                key=str(post_id),
-            )
+            ))
+
+        # Add all rows at once
+        table.add_rows(rows, keys=[str(getattr(post, "id", None)) for post in sorted_posts])
 
         # Update preview to show the first post
         self.update_preview()
