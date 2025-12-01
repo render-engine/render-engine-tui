@@ -1,6 +1,5 @@
 """UI screens for modals and secondary screens."""
 
-from datetime import datetime
 from typing import Optional
 
 from textual.app import ComposeResult
@@ -122,67 +121,19 @@ class CreatePostScreen(Screen):
             ),
         )
 
-    def _collection_has_field(self, field_name: str) -> bool:
-        """Check if the current collection has a specific field."""
-        collection = self.content_manager.get_current_collection()
-        return self.content_manager._collection_has_field(collection, field_name)
-
     def on_mount(self):
         """Mount the screen."""
         self.title = "Create New Post"
 
-        # Handle collection-specific field configuration
-        has_title = self._collection_has_field("title")
-        has_description = self._collection_has_field("description")
-
-        if not has_title:
-            # Disable title field if collection doesn't have it
-            title_input = self.query_one("#title-input", Input)
-            title_input.disabled = True
-            title_input.placeholder = "Field Not Implemented"
-
-        if not has_description:
-            # Disable description field if collection doesn't have it
-            description_input = self.query_one("#description-input", Input)
-            description_input.disabled = True
-            description_input.placeholder = "Field Not Implemented"
-
-        # Auto-generate slug from timestamp for collections without title
-        if not has_title:
-            slug = datetime.now().strftime("%Y%m%d-%H%M%S")
-            slug_input = self.query_one("#slug-input", Input)
-            slug_input.value = slug
-
     def action_save(self):
         """Save the new post."""
         try:
-            has_title = self._collection_has_field("title")
-            has_description = self._collection_has_field("description")
-
             title = self.query_one("#title-input", Input).value
             slug = self.query_one("#slug-input", Input).value
             description = self.query_one("#description-input", Input).value
             content = self.query_one("#content-input", TextArea).text
             external_link = self.query_one("#external-link-input", Input).value or None
             image_url = self.query_one("#image-url-input", Input).value or None
-
-            # Conditional validation based on collection schema
-            if not has_title and not has_description:
-                # For collections without title/description: slug and content are required
-                if not slug or not content:
-                    self.app.notify(
-                        "Slug and content are required", severity="error"
-                    )
-                    return
-                title = ""  # Force empty title
-                description = ""  # Force empty description
-            else:
-                # For collections with title: title, slug, and content are required
-                if not title or not slug or not content:
-                    self.app.notify(
-                        "Title, slug, and content are required", severity="error"
-                    )
-                    return
 
             post_id = self.content_manager.create_post(
                 slug=slug,

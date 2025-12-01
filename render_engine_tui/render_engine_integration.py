@@ -305,40 +305,6 @@ class ContentManager:
         except Exception as e:
             raise RuntimeError(f"Failed to fetch post {post_id}: {e}")
 
-    def _collection_has_field(self, collection: Collection, field_name: str) -> bool:
-        """Check if a collection has a specific field.
-
-        Args:
-            collection: The Collection object
-            field_name: The field name to check
-
-        Returns:
-            True if the field is available, False otherwise
-        """
-        # Try to detect from Parser type
-        if hasattr(collection, "Parser"):
-            parser = collection.Parser
-            parser_name = parser.__name__
-
-            # Markdown/YAML parsers have title, description, content
-            if "Markdown" in parser_name or "YAML" in parser_name:
-                if field_name in {"title", "description", "content", "slug", "date"}:
-                    return True
-            # Text parsers have content
-            elif "Text" in parser_name:
-                if field_name in {"content", "slug", "date"}:
-                    return True
-
-        # Default fields are always available
-        if field_name in {"slug", "date", "id"}:
-            return True
-
-        # Assume common metadata fields are available
-        if field_name in {"external_link", "image_url", "tags"}:
-            return True
-
-        return False
-
     def create_post(
         self,
         slug: str,
@@ -371,7 +337,6 @@ class ContentManager:
             from datetime import datetime
 
             manager = self.get_instance()
-            collection = self.get_current_collection()
 
             if date is None:
                 date = datetime.now().isoformat()
@@ -382,9 +347,9 @@ class ContentManager:
                 "date": date,
             }
 
-            if self._collection_has_field(collection, "title") and title:
+            if title:
                 frontmatter_data["title"] = title
-            if self._collection_has_field(collection, "description") and description:
+            if description:
                 frontmatter_data["description"] = description
             if external_link:
                 frontmatter_data["external_link"] = external_link
