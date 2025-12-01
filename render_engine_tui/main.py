@@ -336,7 +336,7 @@ class ContentEditorApp(App):
             ))
 
         # Add all rows at once
-        table.add_rows(rows, keys=[str(getattr(post, "id", None)) for post in sorted_posts])
+        table.add_rows(rows)
 
         # Update preview to show the first post
         self.update_preview()
