@@ -351,7 +351,7 @@ class ContentEditorApp(App):
             post = self.posts[table.cursor_row]
             self.current_post = post
 
-        preview.text = self.current_post.content
+        preview.text = self.current_post.Parser.parse_content.content
 
     @property
     def cursor_row(self):
@@ -363,7 +363,6 @@ class ContentEditorApp(App):
         """Update preview when row is highlighted."""
         self.update_preview()
 
-
     def action_new_post(self):
         """Create a new blog post."""
 
@@ -372,7 +371,6 @@ class ContentEditorApp(App):
             self.notify("Post created successfully", severity="information")
 
         self.push_screen(CreatePostScreen(self, on_created))
-
 
     def action_change_collection(self):
         """Open collection selector modal."""
@@ -393,7 +391,6 @@ class ContentEditorApp(App):
                 )
 
         self.push_screen(CollectionSelectScreen(on_collection_selected, self.loader))
-
 
     def action_about(self):
         """Open the about screen."""
