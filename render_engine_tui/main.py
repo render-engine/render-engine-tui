@@ -1,6 +1,5 @@
 """Main TUI application."""
 
-import pdb
 from typing import Optional, List
 from textual.app import ComposeResult, App
 from textual.containers import Horizontal
@@ -246,7 +245,6 @@ class ContentEditorApp(App):
             post = self.posts[table.cursor_row]
             self.current_post = post
 
-        pdb.set_trace()
         preview.text = self.current_post.content
 
     @property
