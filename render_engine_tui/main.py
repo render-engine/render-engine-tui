@@ -110,7 +110,11 @@ class ContentEditorApp(App):
     def _update_subtitle(self) -> None:
         """Update the subtitle to show current collection."""
         collection = self.loader.get_collection(self.current_collection)
-        collection_display = getattr(collection, "_title", self.current_collection.title()) if collection else self.current_collection
+        collection_display = (
+            getattr(collection, "_title", self.current_collection.title())
+            if collection
+            else self.current_collection
+        )
         self.sub_title = f"Browsing {collection_display}"
 
     def load_posts(self, search: Optional[str] = None, page: int = 0):
@@ -129,12 +133,10 @@ class ContentEditorApp(App):
             if not collection:
                 raise RuntimeError(f"Collection '{self.current_collection}' not found")
 
-            all_posts = list(collection.sorted_pages)
+            all_posts = [page for page in collection]
 
             filtered_posts = (
-                self._search_posts(all_posts, search)
-                if search
-                else all_posts
+                self._search_posts(all_posts, search) if search else all_posts
             )
 
             # Apply pagination
@@ -158,7 +160,7 @@ class ContentEditorApp(App):
             return pages
 
         search_lower = search_term.lower()
-        searchable_fields = ['title', 'slug', 'content', 'description']
+        searchable_fields = ["title", "slug", "content", "description"]
         filtered = []
 
         for page in pages:
@@ -185,7 +187,7 @@ class ContentEditorApp(App):
             return None
 
         for page in collection.sorted_pages:
-            if getattr(page, 'id', None) == post_id:
+            if getattr(page, "id", None) == post_id:
                 return page
         return None
 
@@ -249,7 +251,9 @@ class ContentEditorApp(App):
             markdown_with_frontmatter = frontmatter.dumps(post)
 
             # Delegate to ContentManager
-            if not hasattr(manager, "create_entry") or not callable(getattr(manager, "create_entry")):
+            if not hasattr(manager, "create_entry") or not callable(
+                getattr(manager, "create_entry")
+            ):
                 raise NotImplementedError(
                     f"{manager.__class__.__name__} does not implement create_entry(). "
                     f"Use a ContentManager that supports write operations."
@@ -465,15 +469,15 @@ class ContentEditorApp(App):
                 self.current_search = None
                 self.load_posts()
                 coll = self.loader.get_collection(collection)
-                collection_display = getattr(coll, "_title", collection.title()) if coll else collection
+                collection_display = (
+                    getattr(coll, "_title", collection.title()) if coll else collection
+                )
                 self.notify(
                     f"Switched to {collection_display}",
                     severity="information",
                 )
 
-        self.push_screen(
-            CollectionSelectScreen(on_collection_selected, self.loader)
-        )
+        self.push_screen(CollectionSelectScreen(on_collection_selected, self.loader))
 
     def action_next_page(self):
         """Load the next page of posts."""
