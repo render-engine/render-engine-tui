@@ -122,26 +122,6 @@ class ContentManager:
         """
         self._posts_cache.pop(self.current_collection, None)
 
-    def get_post(self, post_id: int) -> Optional[Page]:
-        """Get a single post by ID.
-
-        Args:
-            post_id: The post ID
-
-        Returns:
-            Page object or None if not found
-
-        Raises:
-            RuntimeError: If fetch fails
-        """
-        try:
-            posts = self.get_all_posts()
-            for page in posts:
-                if getattr(page, 'id', None) == post_id:
-                    return page
-            return None
-        except Exception as e:
-            raise RuntimeError(f"Failed to fetch post {post_id}: {e}")
 
     def create_post(
         self,
@@ -152,7 +132,7 @@ class ContentManager:
         external_link: Optional[str] = None,
         image_url: Optional[str] = None,
         date: Optional[str] = None,
-    ) -> int:
+    ) -> None:
         """Create a new post in current collection.
 
         Args:
@@ -163,9 +143,6 @@ class ContentManager:
             external_link: External URL (optional)
             image_url: Image URL (optional)
             date: Publication date as ISO string (optional)
-
-        Returns:
-            The ID of the created post
 
         Raises:
             RuntimeError: If creation fails
@@ -218,35 +195,11 @@ class ContentManager:
                 collection_name=self.current_collection,
             )
 
-            # Get the ID of the created post
-            post_id = self._get_post_id_after_create(slug)
-            return post_id
+            # Invalidate cache to ensure fresh data on next fetch
+            self.invalidate_posts_cache()
 
         except Exception as e:
             raise RuntimeError(f"Failed to create post: {e}")
-
-    def _get_post_id_after_create(self, slug: str) -> int:
-        """Get the ID of a post that was just created by slug.
-
-        Args:
-            slug: The post slug
-
-        Returns:
-            The post ID
-
-        Raises:
-            RuntimeError: If post not found
-        """
-        try:
-            # Invalidate cache to fetch fresh posts
-            self.invalidate_posts_cache()
-            posts = self.get_all_posts(use_cache=False)
-            matching = self.search_posts(posts, slug)
-            if matching:
-                return matching[0].id
-            raise RuntimeError(f"Post with slug '{slug}' not found after creation")
-        except Exception as e:
-            raise RuntimeError(f"Failed to get post ID after creation: {e}")
 
     # ====== Search Operations (merged from SearchService) ======
 

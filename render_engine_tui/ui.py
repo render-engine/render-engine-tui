@@ -82,7 +82,7 @@ class CreatePostScreen(Screen):
             external_link = self.query_one("#external-link-input", Input).value or None
             image_url = self.query_one("#image-url-input", Input).value or None
 
-            post_id = self.app_instance.create_post(
+            self.app_instance.create_post(
                 slug=slug,
                 title=title,
                 content=content,
@@ -91,7 +91,7 @@ class CreatePostScreen(Screen):
                 image_url=image_url,
             )
 
-            self.on_created(post_id)
+            self.on_created(None)
             self.app.pop_screen()
         except Exception as e:
             self.app.notify(f"Error creating post: {e}", severity="error")
@@ -306,7 +306,7 @@ class MetadataModal(ModalScreen):
 
         # Display all non-callable attributes from the post as metadata
         # Common attributes to prioritize
-        priority_attrs = ["id", "slug", "title", "date", "description"]
+        priority_attrs = ["slug", "title", "date", "description"]
         shown_attrs = set()
 
         # First, show priority attributes

@@ -119,23 +119,6 @@ class ContentEditorApp(App):
         except Exception as e:
             self.notify(f"Error loading posts: {e}", severity="error")
 
-    def _get_post(self, post_id: int) -> Optional[Page]:
-        """Get a single post by ID from current collection.
-
-        Args:
-            post_id: The post ID
-
-        Returns:
-            Page object or None if not found
-        """
-        collection = self.loader.get_collection(self.current_collection)
-        if not collection:
-            return None
-
-        for page in collection.sorted_pages:
-            if getattr(page, "id", None) == post_id:
-                return page
-        return None
 
     def create_post(
         self,
@@ -146,7 +129,7 @@ class ContentEditorApp(App):
         external_link: Optional[str] = None,
         image_url: Optional[str] = None,
         date: Optional[str] = None,
-    ) -> int:
+    ) -> None:
         """Create a new post in current collection.
 
         Args:
@@ -157,9 +140,6 @@ class ContentEditorApp(App):
             external_link: External URL (optional)
             image_url: Image URL (optional)
             date: Publication date as ISO string (optional)
-
-        Returns:
-            The ID of the created post
 
         Raises:
             RuntimeError: If creation fails
@@ -214,84 +194,9 @@ class ContentEditorApp(App):
                 collection_name=self.current_collection,
             )
 
-            # Get the ID of the created post
-            post_id = self._get_post_id_after_create(slug)
-            return post_id
-
         except Exception as e:
             raise RuntimeError(f"Failed to create post: {e}")
 
-    def _get_post_id_after_create(self, slug: str) -> int:
-        """Get the ID of a post that was just created by slug.
-
-        Args:
-            slug: The post slug
-
-        Returns:
-            The post ID
-
-        Raises:
-            RuntimeError: If post not found
-        """
-        try:
-            collection = self.loader.get_collection(self.current_collection)
-            if not collection:
-                raise RuntimeError(f"Collection '{self.current_collection}' not found")
-
-            # Search for post by slug in collection
-            for page in collection.sorted_pages:
-                if getattr(page, "slug", None) == slug:
-                    return getattr(page, "id", None)
-            raise RuntimeError(f"Post with slug '{slug}' not found after creation")
-        except Exception as e:
-            raise RuntimeError(f"Failed to get post ID after creation: {e}")
-
-    def refresh_current_post(self, post_id: int) -> None:
-        """Refresh a single post in the table efficiently.
-
-        Updates the post from local cache. Only fetches from backend if necessary.
-        Keeps scroll position and selection.
-
-        Args:
-            post_id: The ID of the post to refresh
-        """
-        try:
-            table = self.query_one("#posts-table", DataTable)
-
-            # Find the post in our current list
-            for i, post in enumerate(self.posts):
-                if getattr(post, "id", None) == post_id:
-                    # Use the post from our local cache - it's already fresh
-                    # Only fetch from backend if this specific post doesn't have content
-                    updated_post = post
-                    if getattr(post, "content", None) is None:
-                        updated_post = self._get_post(post_id)
-
-                    if updated_post:
-                        # Update post in list if fetched
-                        if updated_post != post:
-                            self.posts[i] = updated_post
-
-                        # Format and update the table row
-                        date_obj = getattr(updated_post, "date", None)
-                        date_str = date_obj.strftime("%Y-%m-%d") if date_obj else "N/A"
-
-                        title = getattr(updated_post, "title", None) or getattr(
-                            updated_post, "slug", "(untitled)"
-                        )
-                        table.update_cell(str(post_id), "Title", title)
-                        table.update_cell(str(post_id), "Date", date_str)
-
-                        # Update the preview if it's the currently selected post
-                        if (
-                            self.current_post
-                            and getattr(self.current_post, "id", None) == post_id
-                        ):
-                            self.current_post = updated_post
-                            self.update_preview()
-                    break
-        except Exception as e:
-            self.notify(f"Error refreshing post: {e}", severity="error")
 
     def populate_table(self):
         """Populate the data table with posts.
@@ -304,9 +209,8 @@ class ContentEditorApp(App):
         table.clear(columns=True)
         table.cursor_type = "row"
 
-        # Add columns: ID, Title, Date
+        # Add columns: Title, Date
         table.add_columns(
-            "ID",
             "Title",
             "Date",
         )
@@ -319,7 +223,6 @@ class ContentEditorApp(App):
         # Build rows list
         rows = []
         for post in sorted_posts:
-            post_id = getattr(post, "id", None)
             post_date = getattr(post, "date", None)
             post_title = getattr(post, "title", None)
             post_slug = getattr(post, "slug", "(untitled)")
@@ -330,7 +233,6 @@ class ContentEditorApp(App):
             title_display = post_title or post_slug
 
             rows.append((
-                str(post_id),
                 title_display,
                 date_str,
             ))
@@ -410,12 +312,7 @@ class ContentEditorApp(App):
             return
 
         try:
-            post_id = getattr(self.current_post, "id", None)
-            full_post = self._get_post(post_id)
-            if full_post:
-                self.push_screen(MetadataModal(full_post))
-            else:
-                self.notify("Could not load post metadata", severity="error")
+            self.push_screen(MetadataModal(self.current_post))
         except Exception as e:
             self.notify(f"Error loading metadata: {e}", severity="error")
 
