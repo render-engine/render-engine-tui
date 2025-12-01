@@ -14,7 +14,13 @@ from textual.binding import Binding
 from render_engine import Page
 
 from .render_engine_integration import ContentManager
-from .ui import AboutScreen, CreatePostScreen, SearchModal, CollectionSelectScreen, MetadataModal
+from .ui import (
+    AboutScreen,
+    CreatePostScreen,
+    SearchModal,
+    CollectionSelectScreen,
+    MetadataModal,
+)
 
 
 class ContentEditorApp(App):
@@ -121,7 +127,11 @@ class ContentEditorApp(App):
 
             # Get all posts, apply search filtering, then paginate
             all_posts = self.content_manager.get_all_posts()
-            filtered_posts = self.content_manager.search_posts(all_posts, search) if search else all_posts
+            filtered_posts = (
+                self.content_manager.search_posts(all_posts, search)
+                if search
+                else all_posts
+            )
 
             # Apply pagination
             offset = page * self.page_size
@@ -234,28 +244,7 @@ class ContentEditorApp(App):
         ):
             post = self.posts[table.cursor_row]
             self.current_post = post
-
-            try:
-                # Check if content is already available in the post object
-                content = getattr(post, 'content', None)
-
-                # Only fetch from backend if content is missing
-                if content is None:
-                    post_id = getattr(post, "id", None)
-                    full_post = self.content_manager.get_post(post_id)
-                    if not full_post:
-                        preview.text = "Post not found"
-                        return
-                    content = full_post.content
-
-                if content:
-                    preview.text = str(content)
-                else:
-                    preview.text = "(No content available)"
-            except Exception as e:
-                self.notify(f"Error loading post content: {e}", severity="error")
-        else:
-            preview.text = "Select a post to preview"
+        preview.text = self.current_post
 
     @property
     def cursor_row(self):
@@ -287,6 +276,7 @@ class ContentEditorApp(App):
 
     def action_new_post(self):
         """Create a new blog post."""
+
         def on_created(post_id):
             self.load_posts()
             self.notify("Post created successfully", severity="information")
@@ -295,6 +285,7 @@ class ContentEditorApp(App):
 
     def action_search(self):
         """Open search modal."""
+
         def on_search(search_term):
             self.load_posts(search=search_term)
             if search_term:
@@ -306,6 +297,7 @@ class ContentEditorApp(App):
 
     def action_change_collection(self):
         """Open collection selector modal."""
+
         def on_collection_selected(collection: str):
             """Handle collection selection."""
             if collection != self.current_collection:
@@ -321,9 +313,7 @@ class ContentEditorApp(App):
                 )
 
         self.push_screen(
-            CollectionSelectScreen(
-                on_collection_selected, self.content_manager.loader
-            )
+            CollectionSelectScreen(on_collection_selected, self.content_manager.loader)
         )
 
     def action_next_page(self):
