@@ -13,7 +13,7 @@ from textual.binding import Binding
 
 from render_engine import Page
 
-from .render_engine_integration import ContentManager
+from .site_loader import SiteLoader
 from .ui import (
     AboutScreen,
     CreatePostScreen,
@@ -71,7 +71,7 @@ class ContentEditorApp(App):
     def __init__(self):
         """Initialize the app."""
         super().__init__()
-        self.content_manager = ContentManager()
+        self.loader = SiteLoader()
         self.current_post: Optional[Page] = None
         self.posts: List[Page] = []
         self.current_collection = self.DEFAULT_COLLECTION
@@ -109,9 +109,8 @@ class ContentEditorApp(App):
 
     def _update_subtitle(self) -> None:
         """Update the subtitle to show current collection."""
-        collection_display = self.content_manager.AVAILABLE_COLLECTIONS.get(
-            self.current_collection, self.current_collection
-        )
+        collection = self.loader.get_collection(self.current_collection)
+        collection_display = getattr(collection, "_title", self.current_collection.title()) if collection else self.current_collection
         self.sub_title = f"Browsing {collection_display}"
 
     def load_posts(self, search: Optional[str] = None, page: int = 0):
@@ -125,10 +124,15 @@ class ContentEditorApp(App):
             self.current_page = page
             self.current_search = search
 
-            # Get all posts, apply search filtering, then paginate
-            all_posts = self.content_manager.get_all_posts()
+            # Iterate directly through the render-engine collection
+            collection = self.loader.get_collection(self.current_collection)
+            if not collection:
+                raise RuntimeError(f"Collection '{self.current_collection}' not found")
+
+            all_posts = list(collection.sorted_pages)
+
             filtered_posts = (
-                self.content_manager.search_posts(all_posts, search)
+                self._search_posts(all_posts, search)
                 if search
                 else all_posts
             )
@@ -139,6 +143,159 @@ class ContentEditorApp(App):
             self.populate_table()
         except Exception as e:
             self.notify(f"Error loading posts: {e}", severity="error")
+
+    def _search_posts(self, pages: List[Page], search_term: str) -> List[Page]:
+        """Search pages by common fields.
+
+        Args:
+            pages: List of Page objects to search
+            search_term: Term to search for
+
+        Returns:
+            List of matching Page objects
+        """
+        if not search_term:
+            return pages
+
+        search_lower = search_term.lower()
+        searchable_fields = ['title', 'slug', 'content', 'description']
+        filtered = []
+
+        for page in pages:
+            for attr in searchable_fields:
+                if hasattr(page, attr):
+                    value = str(getattr(page, attr, "")).lower()
+                    if search_lower in value:
+                        filtered.append(page)
+                        break
+
+        return filtered
+
+    def _get_post(self, post_id: int) -> Optional[Page]:
+        """Get a single post by ID from current collection.
+
+        Args:
+            post_id: The post ID
+
+        Returns:
+            Page object or None if not found
+        """
+        collection = self.loader.get_collection(self.current_collection)
+        if not collection:
+            return None
+
+        for page in collection.sorted_pages:
+            if getattr(page, 'id', None) == post_id:
+                return page
+        return None
+
+    def create_post(
+        self,
+        slug: str,
+        title: str,
+        content: str,
+        description: str = "",
+        external_link: Optional[str] = None,
+        image_url: Optional[str] = None,
+        date: Optional[str] = None,
+    ) -> int:
+        """Create a new post in current collection.
+
+        Args:
+            slug: Post slug (URL identifier)
+            title: Post title
+            content: Post content (markdown)
+            description: Post description
+            external_link: External URL (optional)
+            image_url: Image URL (optional)
+            date: Publication date as ISO string (optional)
+
+        Returns:
+            The ID of the created post
+
+        Raises:
+            RuntimeError: If creation fails
+        """
+        try:
+            import frontmatter
+            from datetime import datetime
+
+            collection = self.loader.get_collection(self.current_collection)
+            if not collection:
+                raise RuntimeError(f"Collection '{self.current_collection}' not found")
+
+            manager = collection.content_manager
+
+            if date is None:
+                date = datetime.now().isoformat()
+
+            # Build YAML frontmatter dictionary
+            frontmatter_data = {
+                "slug": slug,
+                "date": date,
+            }
+
+            if title:
+                frontmatter_data["title"] = title
+            if description:
+                frontmatter_data["description"] = description
+            if external_link:
+                frontmatter_data["external_link"] = external_link
+            if image_url:
+                frontmatter_data["image_url"] = image_url
+
+            # Create markdown post object with frontmatter
+            post = frontmatter.Post(content, **frontmatter_data)
+            markdown_with_frontmatter = frontmatter.dumps(post)
+
+            # Delegate to ContentManager
+            if not hasattr(manager, "create_entry") or not callable(getattr(manager, "create_entry")):
+                raise NotImplementedError(
+                    f"{manager.__class__.__name__} does not implement create_entry(). "
+                    f"Use a ContentManager that supports write operations."
+                )
+
+            # Get table name from ContentManager if available
+            table_name = getattr(manager, "table_name", None) or self.current_collection
+
+            manager.create_entry(
+                content=markdown_with_frontmatter,
+                table=table_name,
+                collection_name=self.current_collection,
+            )
+
+            # Get the ID of the created post
+            post_id = self._get_post_id_after_create(slug)
+            return post_id
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to create post: {e}")
+
+    def _get_post_id_after_create(self, slug: str) -> int:
+        """Get the ID of a post that was just created by slug.
+
+        Args:
+            slug: The post slug
+
+        Returns:
+            The post ID
+
+        Raises:
+            RuntimeError: If post not found
+        """
+        try:
+            collection = self.loader.get_collection(self.current_collection)
+            if not collection:
+                raise RuntimeError(f"Collection '{self.current_collection}' not found")
+
+            # Search for post by slug in collection
+            all_posts = list(collection.sorted_pages)
+            matching = self._search_posts(all_posts, slug)
+            if matching:
+                return matching[0].id
+            raise RuntimeError(f"Post with slug '{slug}' not found after creation")
+        except Exception as e:
+            raise RuntimeError(f"Failed to get post ID after creation: {e}")
 
     def refresh_current_post(self, post_id: int) -> None:
         """Refresh a single post in the table efficiently.
@@ -159,7 +316,7 @@ class ContentEditorApp(App):
                     # Only fetch from backend if this specific post doesn't have content
                     updated_post = post
                     if getattr(post, "content", None) is None:
-                        updated_post = self.content_manager.get_post(post_id)
+                        updated_post = self._get_post(post_id)
 
                     if updated_post:
                         # Update post in list if fetched
@@ -282,7 +439,7 @@ class ContentEditorApp(App):
             self.load_posts()
             self.notify("Post created successfully", severity="information")
 
-        self.push_screen(CreatePostScreen(self.content_manager, on_created))
+        self.push_screen(CreatePostScreen(self, on_created))
 
     def action_search(self):
         """Open search modal."""
@@ -303,18 +460,19 @@ class ContentEditorApp(App):
             """Handle collection selection."""
             if collection != self.current_collection:
                 self.current_collection = collection
-                self.content_manager.set_collection(collection)
                 self._update_subtitle()
                 self.current_page = 0  # Reset pagination
                 self.current_search = None
                 self.load_posts()
+                coll = self.loader.get_collection(collection)
+                collection_display = getattr(coll, "_title", collection.title()) if coll else collection
                 self.notify(
-                    f"Switched to {self.content_manager.AVAILABLE_COLLECTIONS[collection]}",
+                    f"Switched to {collection_display}",
                     severity="information",
                 )
 
         self.push_screen(
-            CollectionSelectScreen(on_collection_selected, self.content_manager.loader)
+            CollectionSelectScreen(on_collection_selected, self.loader)
         )
 
     def action_next_page(self):
@@ -348,9 +506,9 @@ class ContentEditorApp(App):
 
         try:
             post_id = getattr(self.current_post, "id", None)
-            full_post = self.content_manager.get_post(post_id)
+            full_post = self._get_post(post_id)
             if full_post:
-                self.push_screen(MetadataModal(full_post, self.content_manager))
+                self.push_screen(MetadataModal(full_post))
             else:
                 self.notify("Could not load post metadata", severity="error")
         except Exception as e:

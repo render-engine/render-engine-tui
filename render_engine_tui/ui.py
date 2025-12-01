@@ -18,7 +18,6 @@ from textual.widgets import (
 from textual.binding import Binding
 from textual.screen import Screen, ModalScreen
 
-from .render_engine_integration import ContentManager
 from .site_loader import SiteLoader
 
 
@@ -83,10 +82,10 @@ class CreatePostScreen(Screen):
         Binding("escape", "quit_screen", "Cancel", show=True),
     ]
 
-    def __init__(self, content_manager: ContentManager, on_created):
+    def __init__(self, app, on_created):
         """Initialize the create post screen."""
         super().__init__()
-        self.content_manager = content_manager
+        self.app_instance = app
         self.on_created = on_created
 
     def compose(self) -> ComposeResult:
@@ -136,7 +135,7 @@ class CreatePostScreen(Screen):
             external_link = self.query_one("#external-link-input", Input).value or None
             image_url = self.query_one("#image-url-input", Input).value or None
 
-            post_id = self.content_manager.create_post(
+            post_id = self.app_instance.create_post(
                 slug=slug,
                 title=title,
                 content=content,
@@ -335,16 +334,14 @@ class MetadataModal(ModalScreen):
     }
     """
 
-    def __init__(self, post, content_manager=None):
+    def __init__(self, post):
         """Initialize the metadata modal.
 
         Args:
             post: Page object containing post data
-            content_manager: ContentManager instance for accessing collection info (optional)
         """
         super().__init__()
         self.post = post
-        self.content_manager = content_manager
 
     def compose(self) -> ComposeResult:
         """Compose the metadata modal."""
