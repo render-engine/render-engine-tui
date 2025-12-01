@@ -114,7 +114,7 @@ class ContentEditorApp(App):
             if not collection:
                 raise RuntimeError(f"Collection '{self.current_collection}' not found")
 
-            self.posts = [page for page in collection]
+            self.posts = list(collection.sorted_pages)
             self.populate_table()
         except Exception as e:
             self.notify(f"Error loading posts: {e}", severity="error")
