@@ -21,59 +21,6 @@ from textual.screen import Screen, ModalScreen
 from .site_loader import SiteLoader
 
 
-class SearchModal(ModalScreen):
-    """Modal screen for searching posts."""
-
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel", show=False),
-    ]
-
-    CSS = """
-    SearchModal {
-        align: center middle;
-    }
-
-    SearchModal > Vertical {
-        width: 60;
-        height: 7;
-        border: solid $accent;
-        background: $panel;
-    }
-    """
-
-    def __init__(self, on_search):
-        """Initialize the search modal."""
-        super().__init__()
-        self.on_search = on_search
-
-    def compose(self) -> ComposeResult:
-        """Compose the search modal."""
-        yield Vertical(
-            Static("Search Posts"),
-            Input(
-                id="search-modal-input",
-                placeholder="Enter search term (press Enter to search)",
-            ),
-        )
-
-    def on_mount(self):
-        """Mount the modal."""
-        self.title = "Search"
-        input_widget = self.query_one("#search-modal-input", Input)
-        input_widget.focus()
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle search submission."""
-        if event.input.id == "search-modal-input":
-            search_term = event.input.value.strip()
-            self.on_search(search_term if search_term else None)
-            self.app.pop_screen()
-
-    def action_cancel(self):
-        """Cancel the search."""
-        self.app.pop_screen()
-
-
 class CreatePostScreen(Screen):
     """Screen for creating a new blog post."""
 

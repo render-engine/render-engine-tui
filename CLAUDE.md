@@ -11,7 +11,6 @@ This is a Python TUI (Terminal User Interface) application for browsing and crea
 - **Backend-agnostic** - Works with any ContentManager (PostgreSQL, FileSystem, custom)
 - **Async content loading** - Preview updates without blocking UI
 - **Multi-collection support** - Browse and create across different content collections
-- **Full-text search** - Search across all posts in a collection
 
 ## Commands
 
@@ -57,12 +56,11 @@ The application must be run from within a render-engine project directory that h
 **UI Layer** (`render-engine-tui/main.py`)
 - `ContentEditorApp` - main Textual application managing the TUI
 - Two-pane layout: preview (markdown) above, posts table below
-- Implements pagination (50 posts per page) for large collections
 - Uses async workers (`@work` decorator) to fetch full post content without blocking UI
 - Dynamic table columns based on collection schema (title for blog, content for microblog, etc.)
 
 **UI Screens** (`render-engine-tui/ui.py`)
-- Modal screens for search and creating posts
+- Modal screens for creating posts
 - Collection selection screen dynamically populated from config
 - Dynamic field visibility based on collection schema
 
@@ -118,7 +116,7 @@ render_engine_tui/
 ├── __init__.py                             # Package initialization
 ├── main.py                                 # ContentEditorApp (TUI logic, layout, keybindings)
 ├── db.py                                   # ContentManagerWrapper (render-engine integration)
-├── ui.py                                   # Screen classes (search, create post, collection select)
+├── ui.py                                   # Screen classes (create post, collection select)
 ├── collections_config.py                   # Collection configuration loader
 └── render_engine_integration.py            # ContentManager adapter
 
@@ -160,11 +158,9 @@ DELETE:  Not yet supported by render-engine ContentManager API
 |-----|--------|
 | `q` | Quit application |
 | `n` | Create new post |
-| `/` | Search posts |
 | `c` | Change collection |
-| `r` | Reset view |
-| `PageDown` | Next page |
-| `PageUp` | Previous page |
+| `m` | Show metadata |
+| `?` | Show about screen |
 | `Ctrl+S` | Save changes (in create screen) |
 | `Escape` | Cancel/Go back |
 
@@ -172,7 +168,7 @@ DELETE:  Not yet supported by render-engine ContentManager API
 
 ### ContentManager Integration
 - `ContentManagerWrapper` in `db.py` provides unified interface to any ContentManager
-- All data operations (read, search, create) go through ContentManager
+- All data operations (read, create) go through ContentManager
 - No database-specific code in the TUI layer
 - Backend differences handled transparently by ContentManager
 
@@ -186,12 +182,6 @@ DELETE:  Not yet supported by render-engine ContentManager API
 - ContentManager errors caught and displayed as toast notifications
 - Operation failures show user-friendly error messages
 - All async operations wrapped in try/except to handle failures gracefully
-
-### Pagination
-- Default page size: 50 posts per page
-- Search term preserved across page navigation
-- Current page tracked in app state
-- Uses ContentManager's `limit` and `offset` parameters
 
 ## Common Development Tasks
 
@@ -216,7 +206,6 @@ DELETE:  Not yet supported by render-engine ContentManager API
 ### Performance Optimization
 - Current async architecture prevents UI blocking
 - Full post content fetched only when selected (lazy loading)
-- Pagination loads 50 posts at a time, not all posts
 - ContentManager caching can improve repeated queries
 
 ### Using with render-engine
@@ -240,7 +229,7 @@ DELETE:  Not yet supported by render-engine ContentManager API
 ## Important Notes
 
 - **No Tests**: This project currently has no automated test suite; testing is manual
-- **ContentManager-Based**: All data operations (read, create, search) use render-engine's ContentManager - ensures sync with render-engine and works with any backend
+- **ContentManager-Based**: All data operations (read, create) use render-engine's ContentManager - ensures sync with render-engine and works with any backend
 - **Schema-Agnostic Code**: All new code must handle arbitrary collection schemas, not hard-code field names (use `config.has_field()` to check)
 - **Collection-Agnostic UI**: Table columns, form fields, and validation must adapt to collection schema dynamically
 - **No Database Dependencies**: The TUI has no direct database code; all backends are handled by render-engine's ContentManager

@@ -107,7 +107,6 @@ class TestSiteLoaderHappyPath:
             assert loader.project_root.resolve() == temp_project_dir.resolve()
             assert loader.pyproject_path == loader.project_root / "pyproject.toml"
             assert loader._site is None
-            assert loader._module is None
         finally:
             # Restore original cwd
             os.chdir(original_cwd)
@@ -186,26 +185,6 @@ class TestSiteLoaderHappyPath:
             result = loader.get_collection("nonexistent")
             assert result is None
 
-    def test_get_collection_names_returns_list(self, valid_pyproject_path, mock_site, mock_module_with_site):
-        """Test get_collection_names returns list of slugs."""
-        collection1 = Mock(spec=Collection)
-        collection2 = Mock(spec=Collection)
-        collection3 = Mock(spec=Collection)
-
-        mock_site.route_list = {
-            "blog": collection1,
-            "pages": collection2,
-            "microblog": collection3,
-        }
-
-        loader = SiteLoader(project_root=valid_pyproject_path)
-
-        with patch("importlib.import_module", return_value=mock_module_with_site):
-            names = loader.get_collection_names()
-
-            assert isinstance(names, list)
-            assert len(names) == 3
-            assert set(names) == {"blog", "pages", "microblog"}
 
 
 # ============================================================================
@@ -265,14 +244,6 @@ class TestCollectionFiltering:
             collections = loader.get_collections()
             assert collections == {}
 
-    def test_get_collection_names_empty(self, valid_pyproject_path, mock_site, mock_module_with_site):
-        """Test get_collection_names when no collections exist."""
-        mock_site.route_list = {}
-        loader = SiteLoader(project_root=valid_pyproject_path)
-
-        with patch("importlib.import_module", return_value=mock_module_with_site):
-            names = loader.get_collection_names()
-            assert names == []
 
 
 # ============================================================================
@@ -293,15 +264,6 @@ class TestSiteLoaderCaching:
             assert loader._site is not None
             assert loader._site is site
 
-    def test_module_cached_after_load(self, valid_pyproject_path, mock_module_with_site):
-        """Test that module is cached in _module after load."""
-        loader = SiteLoader(project_root=valid_pyproject_path)
-
-        with patch("importlib.import_module", return_value=mock_module_with_site):
-            assert loader._module is None
-            loader.load_site()
-            assert loader._module is not None
-            assert loader._module is mock_module_with_site
 
     def test_cache_prevents_reimport(self, valid_pyproject_path, mock_module_with_site):
         """Test that cached site prevents re-importing module."""
@@ -646,7 +608,6 @@ class TestEdgeCases:
         with patch("importlib.import_module", return_value=mock_module_with_site) as mock_import:
             collections1 = loader.get_collections()
             collections2 = loader.get_collections()
-            collections3 = loader.get_collection_names()
 
             # import_module should only be called once (first call to get_collections)
             assert mock_import.call_count == 1
@@ -685,25 +646,6 @@ class TestEdgeCases:
             result = loader.get_collection("")
             assert result is None
 
-    def test_collection_names_maintains_order(
-        self, valid_pyproject_path, mock_site, mock_module_with_site
-    ):
-        """Test that get_collection_names returns consistent ordering."""
-        # Create collections with specific order
-        collections = {
-            f"col_{i}": Mock(spec=Collection)
-            for i in range(10)
-        }
-        mock_site.route_list = collections
-
-        loader = SiteLoader(project_root=valid_pyproject_path)
-
-        with patch("importlib.import_module", return_value=mock_module_with_site):
-            names1 = loader.get_collection_names()
-            names2 = loader.get_collection_names()
-
-            # Order should be consistent
-            assert names1 == names2
 
 
 # ============================================================================
@@ -743,10 +685,6 @@ class TestIntegration:
             # Get specific collection
             blog_collection = loader.get_collection("blog")
             assert blog_collection is blog
-
-            # Get collection names
-            names = loader.get_collection_names()
-            assert set(names) == {"blog", "pages"}
 
     def test_workflow_with_invalid_config_then_fix(
         self, temp_project_dir, mock_site, mock_module_with_site

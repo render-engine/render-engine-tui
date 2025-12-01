@@ -17,7 +17,6 @@ from .site_loader import SiteLoader
 from .ui import (
     AboutScreen,
     CreatePostScreen,
-    SearchModal,
     CollectionSelectScreen,
     MetadataModal,
 )
@@ -28,18 +27,13 @@ class ContentEditorApp(App):
 
     # Configuration constants
     DEFAULT_COLLECTION = "blog"
-    PAGE_SIZE = 50
     POSTS_TABLE_WIDTH = "30%"
     PREVIEW_PANEL_WIDTH = "70%"
 
     BINDINGS = [
         Binding("n", "new_post", "New", show=True),
-        Binding("/", "search", "Search", show=True),
         Binding("c", "change_collection", "Collection", show=True),
         Binding("m", "show_metadata", "Metadata", show=True),
-        Binding("r", "reset", "Reset", show=True),
-        Binding("pagedown", "next_page", "Next", show=True),
-        Binding("pageup", "prev_page", "Prev", show=True),
         Binding("?", "about", "About", show=True),
         Binding("q", "app.quit", "Quit", show=True),
     ]
@@ -75,11 +69,6 @@ class ContentEditorApp(App):
         self.current_post: Optional[Page] = None
         self.posts: List[Page] = []
         self.current_collection = self.DEFAULT_COLLECTION
-
-        # Pagination state
-        self.page_size = self.PAGE_SIZE
-        self.current_page = 0  # 0-indexed page number
-        self.current_search = None  # Store search term for pagination
 
     def compose(self) -> ComposeResult:
         """Compose the app."""
@@ -117,61 +106,18 @@ class ContentEditorApp(App):
         )
         self.sub_title = f"Browsing {collection_display}"
 
-    def load_posts(self, search: Optional[str] = None, page: int = 0):
-        """Load posts from render-engine with pagination support.
-
-        Args:
-            search: Optional search term to filter posts
-            page: Page number (0-indexed) to load
-        """
+    def load_posts(self):
+        """Load all posts from render-engine."""
         try:
-            self.current_page = page
-            self.current_search = search
-
             # Iterate directly through the render-engine collection
             collection = self.loader.get_collection(self.current_collection)
             if not collection:
                 raise RuntimeError(f"Collection '{self.current_collection}' not found")
 
-            all_posts = [page for page in collection]
-
-            filtered_posts = (
-                self._search_posts(all_posts, search) if search else all_posts
-            )
-
-            # Apply pagination
-            offset = page * self.page_size
-            self.posts = filtered_posts[offset : offset + self.page_size]
+            self.posts = [page for page in collection]
             self.populate_table()
         except Exception as e:
             self.notify(f"Error loading posts: {e}", severity="error")
-
-    def _search_posts(self, pages: List[Page], search_term: str) -> List[Page]:
-        """Search pages by common fields.
-
-        Args:
-            pages: List of Page objects to search
-            search_term: Term to search for
-
-        Returns:
-            List of matching Page objects
-        """
-        if not search_term:
-            return pages
-
-        search_lower = search_term.lower()
-        searchable_fields = ["title", "slug", "content", "description"]
-        filtered = []
-
-        for page in pages:
-            for attr in searchable_fields:
-                if hasattr(page, attr):
-                    value = str(getattr(page, attr, "")).lower()
-                    if search_lower in value:
-                        filtered.append(page)
-                        break
-
-        return filtered
 
     def _get_post(self, post_id: int) -> Optional[Page]:
         """Get a single post by ID from current collection.
@@ -293,10 +239,9 @@ class ContentEditorApp(App):
                 raise RuntimeError(f"Collection '{self.current_collection}' not found")
 
             # Search for post by slug in collection
-            all_posts = list(collection.sorted_pages)
-            matching = self._search_posts(all_posts, slug)
-            if matching:
-                return matching[0].id
+            for page in collection.sorted_pages:
+                if getattr(page, "slug", None) == slug:
+                    return getattr(page, "id", None)
             raise RuntimeError(f"Post with slug '{slug}' not found after creation")
         except Exception as e:
             raise RuntimeError(f"Failed to get post ID after creation: {e}")
@@ -418,23 +363,6 @@ class ContentEditorApp(App):
         """Update preview when row is highlighted."""
         self.update_preview()
 
-    def action_reset(self):
-        """Reset the view to default state: show all posts, go to top."""
-        # Reset pagination and load all posts
-        self.current_page = 0
-        self.current_search = None
-        self.load_posts(search=None, page=0)
-
-        # Move cursor to the top of the table
-        table = self.query_one("#posts-table", DataTable)
-        table.focus()
-
-        # Move cursor to the first row (row 0, column 0)
-        if table.row_count > 0:
-            table.move_cursor(row=0)
-
-        # Notify user
-        self.notify("View reset to default", severity="information")
 
     def action_new_post(self):
         """Create a new blog post."""
@@ -445,17 +373,6 @@ class ContentEditorApp(App):
 
         self.push_screen(CreatePostScreen(self, on_created))
 
-    def action_search(self):
-        """Open search modal."""
-
-        def on_search(search_term):
-            self.load_posts(search=search_term)
-            if search_term:
-                self.notify(f"Searching for: {search_term}", severity="information")
-            else:
-                self.notify("Search cleared", severity="information")
-
-        self.push_screen(SearchModal(on_search))
 
     def action_change_collection(self):
         """Open collection selector modal."""
@@ -465,8 +382,6 @@ class ContentEditorApp(App):
             if collection != self.current_collection:
                 self.current_collection = collection
                 self._update_subtitle()
-                self.current_page = 0  # Reset pagination
-                self.current_search = None
                 self.load_posts()
                 coll = self.loader.get_collection(collection)
                 collection_display = (
@@ -479,24 +394,6 @@ class ContentEditorApp(App):
 
         self.push_screen(CollectionSelectScreen(on_collection_selected, self.loader))
 
-    def action_next_page(self):
-        """Load the next page of posts."""
-        if len(self.posts) < self.page_size:
-            # Less posts than page size means we're on the last page
-            self.notify("Already on last page", severity="information")
-            return
-
-        self.load_posts(search=self.current_search, page=self.current_page + 1)
-        self.notify(f"Page {self.current_page + 1}", severity="information")
-
-    def action_prev_page(self):
-        """Load the previous page of posts."""
-        if self.current_page == 0:
-            self.notify("Already on first page", severity="information")
-            return
-
-        self.load_posts(search=self.current_search, page=self.current_page - 1)
-        self.notify(f"Page {self.current_page + 1}", severity="information")
 
     def action_about(self):
         """Open the about screen."""

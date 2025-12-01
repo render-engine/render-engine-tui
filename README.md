@@ -7,7 +7,6 @@ Integrates directly with [render-engine](https://github.com/kjaymiller/render-en
 ## Features
 
 - **Browse Posts**: View all posts from your render-engine collections
-- **Search**: Full-text search across post titles, slugs, and content
 - **Create**: Add new posts via render-engine's ContentManager
 - **Multi-Collection Support**: Browse and create across different content collections
 - **Backend-Agnostic**: Works with PostgreSQL, FileSystem, or custom ContentManager backends
@@ -74,11 +73,9 @@ uv run render-engine-tui
 
 ### Post List Screen (Main)
 - **c**: Change collection
-- **/**: Search posts
 - **n**: Create a new post
-- **r**: Reset view
-- **PageDown**: Next page
-- **PageUp**: Previous page
+- **m**: Show post metadata
+- **?**: Show about screen
 - **Arrow keys**: Navigate through posts
 - **Enter** or **click**: Select post and view content
 - **q**: Quit application
@@ -137,7 +134,7 @@ Currently manual testing only. To test:
 
 1. Create a render-engine project with test data
 2. Run the TUI: `uv run render-engine-tui`
-3. Test collection switching, post creation, and search
+3. Test collection switching and post creation
 
 ## Troubleshooting
 
