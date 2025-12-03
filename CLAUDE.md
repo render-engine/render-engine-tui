@@ -236,3 +236,4 @@ DELETE:  Not yet supported by render-engine ContentManager API
 - **render-engine Required**: The app must be run from within a render-engine project with collections configured in `pyproject.toml`
 - **Field Normalization**: ContentManager output is normalized to TUI format (`_normalize_posts()` method) - handles schema differences across backends
 - **Async Operations**: All ContentManager calls that might block are wrapped in async workers to maintain UI responsiveness
+- @agent-render-engine-expert can you now use the configured insert sql to create a simple create option. give me a blank screen and the metadata should be a popup. save as draft should save to /tmp/render-engine-tui/drafts/
