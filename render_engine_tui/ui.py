@@ -64,7 +64,7 @@ class CreatePostScreen(Screen):
 
     def action_show_metadata(self):
         """Show metadata entry modal."""
-        self.push_screen(CreatePostMetadataModal(self.metadata, self._update_metadata))
+        self.app.push_screen(CreatePostMetadataModal(self.metadata, self._update_metadata))
 
     def _update_metadata(self, metadata):
         """Update metadata from the modal."""
