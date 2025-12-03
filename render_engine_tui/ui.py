@@ -27,7 +27,7 @@ class CreatePostScreen(Screen):
     BINDINGS = [
         Binding("ctrl+s", "save", "Save", show=True),
         Binding("ctrl+d", "save_draft", "Draft", show=True),
-        Binding("m", "show_metadata", "Metadata", show=True),
+        Binding("ctrl+m", "show_metadata", "Metadata", show=True),
         Binding("escape", "quit_screen", "Cancel", show=True),
     ]
 
