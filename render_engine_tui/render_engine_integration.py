@@ -186,11 +186,9 @@ class ContentManager:
                     f"Use a ContentManager that supports write operations."
                 )
 
-            # Get table name from ContentManager if available
-            table_name = getattr(manager, "table_name", None) or self.current_collection
-
+            # Pass collection_name as positional argument, content as keyword argument
             manager.create_entry(
-                collection_name=self.current_collection,
+                self.current_collection,
                 content=markdown_with_frontmatter,
             )
 
