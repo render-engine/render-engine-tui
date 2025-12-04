@@ -125,8 +125,16 @@ class CreatePostScreen(Screen):
             self.app.notify(f"Error saving draft: {e}", severity="error")
 
     def action_quit_screen(self):
-        """Quit the screen without saving."""
-        self.app.pop_screen()
+        """Quit the screen with confirmation."""
+        def on_confirm(confirmed: bool):
+            if confirmed:
+                self.app.pop_screen()
+
+        self.app.push_screen(ConfirmationModal(
+            "Exit without saving?",
+            "Any unsaved changes will be lost. You can save as draft with Ctrl+D.",
+            on_confirm
+        ))
 
 
 class CreatePostMetadataModal(ModalScreen):
@@ -512,3 +520,87 @@ class MetadataModal(ModalScreen):
     def action_close(self):
         """Close the metadata modal."""
         self.app.pop_screen()
+
+
+class ConfirmationModal(ModalScreen):
+    """Modal screen for confirmation dialogs."""
+
+    BINDINGS = [
+        Binding("y", "confirm", "Yes", show=True),
+        Binding("n", "cancel", "No", show=True),
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    CSS = """
+    ConfirmationModal {
+        align: center middle;
+    }
+
+    ConfirmationModal > Vertical {
+        width: 60;
+        height: auto;
+        border: solid $accent;
+        background: $panel;
+        padding: 1 2;
+    }
+
+    .confirmation-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    .confirmation-message {
+        margin-bottom: 2;
+    }
+
+    .button-group {
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, title: str, message: str, on_confirm):
+        """Initialize the confirmation modal.
+
+        Args:
+            title: The title text
+            message: The confirmation message
+            on_confirm: Callback function that receives a boolean (True if confirmed)
+        """
+        super().__init__()
+        self.confirmation_title = title
+        self.confirmation_message = message
+        self.on_confirm = on_confirm
+
+    def compose(self) -> ComposeResult:
+        """Compose the confirmation modal."""
+        yield Vertical(
+            Static(self.confirmation_title, classes="confirmation-title"),
+            Static(self.confirmation_message, classes="confirmation-message"),
+            Horizontal(
+                Button("Yes", id="yes-btn", variant="error"),
+                Button("No", id="no-btn", variant="primary"),
+                classes="button-group",
+            ),
+        )
+
+    def on_mount(self):
+        """Mount the modal."""
+        self.title = "Confirm"
+        self.query_one("#no-btn", Button).focus()
+
+    def action_confirm(self):
+        """Confirm the action."""
+        self.on_confirm(True)
+        self.app.pop_screen()
+
+    def action_cancel(self):
+        """Cancel the action."""
+        self.on_confirm(False)
+        self.app.pop_screen()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses."""
+        if event.button.id == "yes-btn":
+            self.action_confirm()
+        elif event.button.id == "no-btn":
+            self.action_cancel()
