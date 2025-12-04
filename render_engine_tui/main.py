@@ -189,9 +189,8 @@ class ContentEditorApp(App):
             table_name = getattr(manager, "table_name", None) or self.current_collection
 
             manager.create_entry(
-                content=markdown_with_frontmatter,
-                table=table_name,
                 collection_name=self.current_collection,
+                content=markdown_with_frontmatter,
             )
 
         except Exception as e:
