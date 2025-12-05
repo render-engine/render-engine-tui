@@ -33,6 +33,7 @@ class ContentEditorApp(App):
     BINDINGS = [
         Binding("n", "new_post", "New", show=True),
         Binding("c", "change_collection", "Collection", show=True),
+        Binding("r", "refresh", "Refresh", show=True),
         Binding("m", "show_metadata", "Metadata", show=True),
         Binding("?", "about", "About", show=True),
         Binding("q", "app.quit", "Quit", show=True),
@@ -312,6 +313,27 @@ class ContentEditorApp(App):
             self.push_screen(MetadataModal(self.current_post))
         except Exception as e:
             self.notify(f"Error loading metadata: {e}", severity="error")
+
+    def action_refresh(self):
+        """Reload collections from Site and refresh posts."""
+        try:
+            # Store current cursor position
+            table = self.query_one("#posts-table", DataTable)
+            previous_row = table.cursor_row
+
+            # Reload Site configuration
+            self.loader.reload_site()
+
+            # Reload posts for current collection
+            self.load_posts()
+
+            # Restore cursor position if possible
+            if previous_row is not None and previous_row < len(self.posts):
+                table.move_cursor(row=previous_row)
+
+            self.notify("Collections refreshed", severity="information")
+        except Exception as e:
+            self.notify(f"Error refreshing collections: {e}", severity="error")
 
 
 def run():

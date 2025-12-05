@@ -130,3 +130,13 @@ class SiteLoader:
             The Collection instance or None if not found
         """
         return self.get_collections().get(slug)
+
+    def reload_site(self) -> None:
+        """Force reload the Site from disk, clearing any cached data.
+
+        This will re-import the module and reload collections.
+        Useful when the Site configuration or collections have changed.
+        """
+        self._site = None
+        # Force reload the site
+        self.load_site()
