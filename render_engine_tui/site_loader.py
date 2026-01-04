@@ -25,6 +25,7 @@ class SiteLoader:
         self.project_root = project_root or Path.cwd()
         self.pyproject_path = self.project_root / "pyproject.toml"
         self._site: Optional[Site] = None
+        self._module_name: Optional[str] = None
 
     def load_site(self) -> Site:
         """Load the render-engine Site from pyproject.toml configuration.
@@ -84,6 +85,9 @@ class SiteLoader:
             # Import the module and get the site object
             module = importlib.import_module(module_name)
 
+            # Store module name for later reload
+            self._module_name = module_name
+
             if not hasattr(module, site_name):
                 raise AttributeError(
                     f"Module '{module_name}' does not have a '{site_name}' attribute. "
@@ -137,6 +141,13 @@ class SiteLoader:
         This will re-import the module and reload collections.
         Useful when the Site configuration or collections have changed.
         """
+        # Clear cached site
         self._site = None
+
+        # If we have a module name, force reload it
+        if self._module_name and self._module_name in sys.modules:
+            module = sys.modules[self._module_name]
+            importlib.reload(module)
+
         # Force reload the site
         self.load_site()
