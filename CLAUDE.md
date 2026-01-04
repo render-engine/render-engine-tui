@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Python TUI (Terminal User Interface) application for editing blog content stored in PostgreSQL. Built with [Textual](https://textual.textualize.io/), it allows users to browse, search, create, edit, and delete posts across multiple collections (blog, notes, microblog).
+This is a Python TUI (Terminal User Interface) application for browsing and creating blog content via render-engine ContentManager backends. Built with [Textual](https://textual.textualize.io/), it integrates directly with render-engine projects and supports any ContentManager backend (PostgreSQL, FileSystem, custom).
+
+**Key Features:**
+- **Automatic collection loading** from render-engine Site configuration
+- **Backend-agnostic** - Works with any ContentManager (PostgreSQL, FileSystem, custom)
+- **Async content loading** - Preview updates without blocking UI
+- **Multi-collection support** - Browse and create across different content collections
 
 ## Commands
 
@@ -12,75 +18,82 @@ This is a Python TUI (Terminal User Interface) application for editing blog cont
 ```bash
 # Install dependencies with uv
 uv sync
-
-# Create environment file from template
-cp .env.example .env
-# Edit .env with your PostgreSQL CONNECTION_STRING
 ```
 
 ### Running the Application
 ```bash
-# Using uv
-uv run content-editor
+# From a render-engine project directory:
+uv run render-engine-tui
 
 # Or with Python directly (if virtual environment is activated)
-.venv/bin/content-editor
+.venv/bin/render-engine-tui
 ```
 
-### Environment Configuration
-The application requires the `CONNECTION_STRING` environment variable:
-```bash
-# Option 1: Use .env file
-echo 'CONNECTION_STRING=postgresql://user:password@localhost:5432/database' > .env
-
-# Option 2: Set environment variable
-export CONNECTION_STRING="postgresql://user:password@localhost:5432/database"
-uv run content-editor
-
-# Option 3: Inline (one command)
-CONNECTION_STRING="postgresql://..." uv run content-editor
-```
+The application must be run from within a render-engine project directory that has collections configured in `pyproject.toml`.
 
 ## Architecture
 
 ### Core Components
 
-**Database Layer** (`content_editor/db.py`)
-- `DatabaseManager` class handles all PostgreSQL operations
-- Supports three collections: `blog`, `notes`, `microblog` (switchable at runtime)
-- Uses dynamic SQL with proper parameterization to prevent SQL injection
-- Junction tables: `blog_tags`, `notes_tags`, `microblog_tags` (unified `tags` table)
-- Key methods: `get_posts()`, `get_post()`, `create_post()`, `update_post()`, `delete_post()`
+**Configuration Layer** (`render-engine-tui/collections_config.py`)
+- `CollectionsManager` - Loads collections from render-engine, YAML, or defaults (in order)
+- `CollectionConfig` - Represents a collection schema with fields, table names, etc.
+- `Field` - Represents a single field in a collection
 
-**UI Layer** (`content_editor/main.py`)
+**render-engine Integration** (`render-engine-tui/render_engine_integration.py`)
+- `RenderEngineCollectionsLoader` - Loads collections from render-engine Site configuration
+- Automatically extracts schema from Collection objects and their Parsers
+- `ContentManagerAdapter` - Wraps render-engine ContentManager instances for unified API
+
+**Content Management Layer** (`render-engine-tui/db.py`)
+- `ContentManagerWrapper` class - Unified interface to render-engine's ContentManager
+- **Backend-agnostic** - Works with any ContentManager (PostgreSQL, FileSystem, custom)
+- Loads collections dynamically from render-engine configuration
+- Automatic field mapping between ContentManager output and TUI format
+- Schema-aware: respects collection field availability (title, description, content, etc.)
+- Key methods: `get_posts()`, `get_post()`, `create_post()`, `set_collection()`
+
+**UI Layer** (`render-engine-tui/main.py`)
 - `ContentEditorApp` - main Textual application managing the TUI
-- Organizes layout into three sections: preview (markdown), table (posts), sidebar (tags)
-- Implements pagination (50 posts per page) for large collections
+- Two-pane layout: preview (markdown) above, posts table below
 - Uses async workers (`@work` decorator) to fetch full post content without blocking UI
-- Tag sidebar shows post counts per tag
+- Dynamic table columns based on collection schema (title for blog, content for microblog, etc.)
 
-**UI Screens** (`content_editor/ui.py`)
-- Modal screens for search, create/edit posts, delete confirmation
-- Collection selection screen for switching between blog/notes/microblog
-- Dynamic field visibility based on collection (microblog has no title/description)
+**UI Screens** (`render-engine-tui/ui.py`)
+- Modal screens for creating posts
+- Collection selection screen dynamically populated from config
+- Dynamic field visibility based on collection schema
 
 ### Multi-Collection Architecture
 
-The application dynamically switches between three collections stored in the same PostgreSQL database:
-- **Blog**: Full-featured posts with title, description, content
-- **Notes**: Same schema as blog, separate data
-- **Microblog**: Content-only posts (no title/description fields)
+Collections are loaded directly from render-engine's Site configuration in `pyproject.toml`:
 
-Each collection has:
-- Its own table (`blog`, `notes`, `microblog`)
-- Its own junction table for tags (`blog_tags`, `notes_tags`, `microblog_tags`)
-- Shared unified `tags` table across all collections
+```toml
+[tool.render-engine.collections.blog]
+parser = "render_engine.parsers.YAMLParser"
+content_manager = "render_engine.content_managers.PostgreSQLManager"
 
-**Key Collection-Specific Logic:**
-- Database layer handles schema differences (microblog queries don't select title/description)
-- UI table columns adjust dynamically (Blog/Notes show title; Microblog shows content preview)
-- Create/Edit screens hide title/description fields for microblog
-- Field validation accounts for collection-specific requirements
+[tool.render-engine.collections.pages]
+parser = "render_engine.parsers.YAMLParser"
+content_manager = "render_engine.content_managers.FileSystemManager"
+```
+
+Each collection provides:
+- Field schema with metadata (searchable, editable, type, etc.)
+- Display name and configuration
+- ContentManager implementation for data access
+
+**Collection Schema Detection:**
+- Automatically inferred from render-engine's Collection configuration
+- ContentManager determines backend (PostgreSQL, FileSystem, custom)
+- Parser type determines field schema (title, description, content, date, etc.)
+
+**Key Collection-Agnostic Logic:**
+- ContentManager layer handles all backend differences
+- UI table columns adjust based on collection schema (shows title if available, content preview otherwise)
+- Create/Edit screens show/hide fields based on collection configuration
+- Field validation is schema-aware (required fields differ per collection)
+- ContentManager integration allows custom data access patterns
 
 ### Async Architecture
 
@@ -92,95 +105,135 @@ Each collection has:
 ## Project Dependencies
 
 - **textual>=1.0.0** - TUI framework
-- **psycopg[binary]>=3.0.0** - PostgreSQL adapter
-- **pyyaml>=6.0** - YAML parsing (for potential config)
-- **python-dotenv>=1.0.0** - Environment variable management
-- **Python 3.10+** - Required
+- **python-frontmatter>=1.0.0** - YAML frontmatter parsing for content
+- **render-engine** - Required at runtime (collections configuration source)
+- **Python 3.11+** - Required
 
 ## Code Organization
 
 ```
-content_editor/
-├── __init__.py          # Package initialization
-├── main.py              # ContentEditorApp (main TUI logic, styling, keybindings)
-├── db.py                # DatabaseManager (all database operations)
-└── ui.py                # Screen classes (modals, forms, dialogs)
+render_engine_tui/
+├── __init__.py                             # Package initialization
+├── main.py                                 # ContentEditorApp (TUI logic, layout, keybindings)
+├── db.py                                   # ContentManagerWrapper (render-engine integration)
+├── ui.py                                   # Screen classes (create post, collection select)
+├── collections_config.py                   # Collection configuration loader
+└── render_engine_integration.py            # ContentManager adapter
 
 Project Root/
-├── pyproject.toml       # Project metadata and dependencies
-├── README.md            # User-facing documentation
-├── QUICKSTART.md        # Quick setup guide
-└── tui-collection.md    # Collection switcher implementation details
+├── pyproject.toml                          # Project metadata and dependencies
+├── README.md                               # User-facing documentation
+└── CLAUDE.md                               # This file
 ```
+
+## render-engine Integration
+
+The TUI automatically integrates with render-engine projects:
+
+1. **Automatic Collection Detection** - Reads collections from render-engine Site configuration
+2. **Schema Inference** - Detects field schemas from Parser types
+3. **ContentManager-First** - Uses render-engine's ContentManager for all content operations
+
+### ContentManager-Based Architecture
+
+The TUI uses **render-engine's ContentManager** for all data operations:
+
+```
+CREATE:  TUI → ContentManager.create_entry() → [Any backend: PostgreSQL, FileSystem, custom]
+READ:    TUI → ContentManager.get_all/search → [Any backend: PostgreSQL, FileSystem, custom]
+UPDATE:  Not yet supported by render-engine ContentManager API
+DELETE:  Not yet supported by render-engine ContentManager API
+```
+
+**Benefits:**
+- ✅ Works with any ContentManager backend
+- ✅ Synchronized with render-engine's data layer
+- ✅ Schema-aware (respects available fields)
+- ✅ No database-specific code in TUI
+- ✅ Supports FileSystem and custom backends out of the box
 
 ## Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
 | `q` | Quit application |
-| `e` | Edit selected post |
 | `n` | Create new post |
-| `d` | Delete selected post |
-| `/` | Search posts |
 | `c` | Change collection |
-| `r` | Reset view |
-| `PageDown` | Next page |
-| `PageUp` | Previous page |
-| `Ctrl+S` | Save changes (in edit/create screens) |
+| `m` | Show metadata |
+| `?` | Show about screen |
+| `Ctrl+S` | Save changes (in create screen) |
 | `Escape` | Cancel/Go back |
 
 ## Key Implementation Details
 
-### Database Queries
-- All queries use parameterized statements with `psycopg.sql` module for safety
-- Junction tables use dynamic SQL identifiers based on current collection
-- Tag operations use aggregate queries to avoid N+1 problems (see `get_all_tags_with_counts()`)
+### ContentManager Integration
+- `ContentManagerWrapper` in `db.py` provides unified interface to any ContentManager
+- All data operations (read, create) go through ContentManager
+- No database-specific code in the TUI layer
+- Backend differences handled transparently by ContentManager
 
 ### UI Rendering
 - `DataTable` shows posts with collection-aware columns
-- `ListView` shows tags with post count in sidebar
 - `MarkdownViewer` renders post content in preview panel
-- Async fetch prevents UI blocking during database queries
+- Async fetch prevents UI blocking during content retrieval
+- Two-pane layout: preview (40% height) and posts table (60% height)
 
 ### Error Handling
-- Database connection errors display in subtitle
-- Operation failures show toast notifications
-- All database operations wrapped in try/finally to clean up cursor resources
-
-### Pagination
-- Default page size: 50 posts per page
-- Search term preserved across page navigation
-- Current page tracked in app state
+- ContentManager errors caught and displayed as toast notifications
+- Operation failures show user-friendly error messages
+- All async operations wrapped in try/except to handle failures gracefully
 
 ## Common Development Tasks
 
 ### Adding a New Feature
-1. Identify if it involves database changes (modify `db.py`) or UI changes (modify `main.py`/`ui.py`)
-2. For database: Add method to `DatabaseManager` and test with all collections
+1. Identify if it involves ContentManager integration (modify `db.py`) or UI changes (modify `main.py`/`ui.py`)
+2. For ContentManager: Add method to `ContentManagerWrapper` and test with all collections
 3. For UI: Update keybindings in `BINDINGS` list and implement action method
 4. Test with at least two collections to ensure collection-agnostic code
 
-### Debugging Database Issues
-- Check `CONNECTION_STRING` is set and PostgreSQL is running
-- Use `psql` to verify table structure and data
-- Review `tui-collection.md` for schema documentation
-- Check cursor cleanup in finally blocks (all queries should close cursors)
+### Debugging ContentManager Issues
+- Verify render-engine collections are configured in `pyproject.toml`
+- Check that ContentManager is properly initialized for the collection
+- Test with a known-working render-engine project first
+- Enable verbose output from ContentManager if available
 
 ### Testing Collection Switching
 - Manually switch between collections (`c` key)
 - Verify posts load for each collection
-- Verify tag sidebar updates appropriately
-- Create/edit/delete in each collection to ensure proper table/junction table usage
+- Create posts in each collection to ensure proper ContentManager integration
+- Test with different backend types (PostgreSQL, FileSystem, custom)
 
 ### Performance Optimization
 - Current async architecture prevents UI blocking
-- Tag sidebar query uses aggregate (`COUNT`) to avoid N+1
 - Full post content fetched only when selected (lazy loading)
-- Pagination loads 50 posts at a time, not all posts
+- ContentManager caching can improve repeated queries
+
+### Using with render-engine
+1. Create or navigate to a render-engine project directory
+2. Configure collections in `pyproject.toml` with ContentManager backends
+3. Run TUI from the project root: `uv run render-engine-tui`
+4. Collections will be automatically loaded from your Site configuration
+
+### Adding a New Collection
+1. Add Collection to your render-engine Site in `pyproject.toml`
+2. Configure a ContentManager backend (PostgreSQL, FileSystem, or custom)
+3. Restart TUI - collection auto-detected from Site configuration
+4. Create/browse posts using the TUI
+
+### Supporting Custom ContentManager
+1. Implement `pages` property (for reads) and `create_entry()` method (for creates)
+2. Add to render-engine Collection as `ContentManager` class
+3. TUI will wrap it with `ContentManagerAdapter` automatically
+4. Note: Update/delete operations are not yet supported by render-engine ContentManager API
 
 ## Important Notes
 
-- **MCP Postgres Server**: Disabled in settings (`content_editor/.claude/settings.local.json`) - Claude Code skips the postgres MCP server integration
 - **No Tests**: This project currently has no automated test suite; testing is manual
-- **Microblog Edge Case**: Microblog collection has different schema (no title/description) - ensure all new code handles this
-- **SQL Injection Prevention**: Always use `psycopg.sql.SQL()` with identifiers for table/column names, parameterized queries for values
+- **ContentManager-Based**: All data operations (read, create) use render-engine's ContentManager - ensures sync with render-engine and works with any backend
+- **Schema-Agnostic Code**: All new code must handle arbitrary collection schemas, not hard-code field names (use `config.has_field()` to check)
+- **Collection-Agnostic UI**: Table columns, form fields, and validation must adapt to collection schema dynamically
+- **No Database Dependencies**: The TUI has no direct database code; all backends are handled by render-engine's ContentManager
+- **render-engine Required**: The app must be run from within a render-engine project with collections configured in `pyproject.toml`
+- **Field Normalization**: ContentManager output is normalized to TUI format (`_normalize_posts()` method) - handles schema differences across backends
+- **Async Operations**: All ContentManager calls that might block are wrapped in async workers to maintain UI responsiveness
+- @agent-render-engine-expert can you now use the configured insert sql to create a simple create option. give me a blank screen and the metadata should be a popup. save as draft should save to /tmp/render-engine-tui/drafts/

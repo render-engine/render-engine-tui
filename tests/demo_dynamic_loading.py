@@ -14,7 +14,7 @@ Usage:
 
 import sys
 from pathlib import Path
-from content_editor.config import RenderEngineConfig
+from render_engine_tui.site_loader import SiteLoader
 
 
 def main(project_root: str = None):

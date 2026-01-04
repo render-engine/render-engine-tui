@@ -3,21 +3,21 @@ requires = ["setuptools>=61.0", "wheel", "setuptools_scm>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
-write_to = "content_editor/_version.py"
-version_scheme = "release-branch"
-local_scheme = "node-and-date"
+write_to = "render_engine_tui/_version.py"
 
 [project]
-name = "content-editor-tui"
-dynamic = ["version"]
-description = "TUI for editing blog content stored in PostgreSQL"
-requires-python = ">=3.11"
 dependencies = [
   "textual>=1.0.0",
-  "psycopg[binary]>=3.0.0",
-  "pyyaml>=6.0",
-  "python-dotenv>=1.0.0",
+  "python-frontmatter>=1.0.0",
+  "render-engine>=2025.11.1",
 ]
+name = "render-engine-tui"
+dynamic = ["version"]
+description = "TUI for browsing and creating blog content via render-engine ContentManager backends"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+test = ["pytest>=7.0.0", "pytest-asyncio>=0.21.0", "pytest-cov>=4.0.0"]
 
 [project.scripts]
-render-engine-tui = "content_editor.main:run"
+render-engine-tui = "render_engine_tui.main:run"

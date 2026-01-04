@@ -1,2 +1,2 @@
 [console_scripts]
-content-editor = content_editor.main:run
+render-engine-tui = content_editor.main:run
